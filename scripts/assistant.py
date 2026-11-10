@@ -20,6 +20,32 @@ from providers import make_stt, make_tts
 from stt import JarvisEars
 from wake import WakeListener
 
+def _retry(load, tries=2):
+    """Model loading can fail when memory is briefly short: free what we can and try again."""
+    for i in range(tries):
+        try:
+            return load()
+        except RuntimeError as e:
+            if "alloc" not in str(e).lower() or i == tries - 1:
+                raise MemoryError("Not enough free memory to load the listening model. Close some apps "
+                                  "(or restart the laptop) and start Jarvis again.") from e
+            import gc
+            gc.collect()
+            _free_ollama()
+            time.sleep(3)
+
+
+def _free_ollama():
+    """Ask Ollama to unload every model it holds (they reload on demand)."""
+    try:
+        import requests
+        for m in requests.get("http://localhost:11434/api/ps", timeout=2).json().get("models", []):
+            requests.post("http://localhost:11434/api/generate", timeout=5,
+                          json={"model": m.get("name"), "keep_alive": 0})
+    except Exception:
+        pass
+
+
 BRIEF = re.compile(r"\b(daily )?(brief|briefing)\b|what'?s (on )?(my )?(day|today)|what do i have today", re.I)
 
 
@@ -28,14 +54,13 @@ class Assistant:
         self.cfg, self.bridge = cfg, bridge
         self.mic = audio.Mic()
         t0 = time.time()
-        # Load the heavy models side by side instead of one after another
-        with ThreadPoolExecutor(4) as pool:
-            ears = pool.submit(make_stt, cfg, secrets)
-            wake = pool.submit(JarvisEars, "tiny.en") if cfg.get("wake_word_enabled", True) else None
+        # Brain and voice load alongside; the speech models load one at a time to keep memory use low
+        with ThreadPoolExecutor(3) as pool:
             mouth = pool.submit(make_tts, cfg, secrets)
             brain = pool.submit(Brain, cfg, secrets)
-            self.ears, self.mouth, self.brain = ears.result(), mouth.result(), brain.result()
-            self.wake_ears = wake.result() if wake else None
+            self.ears = _retry(lambda: make_stt(cfg, secrets))
+            self.wake_ears = _retry(lambda: JarvisEars("tiny.en")) if cfg.get("wake_word_enabled", True) else None
+            self.mouth, self.brain = mouth.result(), brain.result()
             # warm everything up so the first real request is quick
             warm = [pool.submit(e.warm_up) for e in (self.ears, self.wake_ears) if hasattr(e, "warm_up")]
             warm.append(pool.submit(self._warm_voice))

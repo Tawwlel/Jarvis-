@@ -23,6 +23,7 @@ from ui import Bridge, ChatWindow, Overlay, SettingsWindow, make_tray
 
 VOICES = ["amy", "ryan", "alan", "lessac", "southern"]
 LOGO = str(ROOT / "assets" / "logo.png")
+INSTANCE = "jarvis-by-apricot-digital"
 
 
 def apply_values(cfg: dict, v: dict, store, mem):
@@ -96,6 +97,19 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis by Apricot Digital")
     app.setQuitOnLastWindowClosed(False)
+
+    # Only one Jarvis at a time: a second copy would load every model again and run out of memory.
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    probe = QLocalSocket()
+    probe.connectToServer(INSTANCE)
+    if probe.waitForConnected(500):
+        probe.write(b"show")
+        probe.waitForBytesWritten(500)
+        print("[app] Jarvis is already running; showing it instead.")
+        return
+    QLocalServer.removeServer(INSTANCE)
+    server = QLocalServer()
+    server.listen(INSTANCE)
     store = default_store()
     migrate_legacy_key(store)
     cfg = load_config()
@@ -172,6 +186,14 @@ def main():
             preview("amy", "Hi, I'm Jarvis, by Apricot Digital. Tell me your name and what you are "
                            "working on, and I'll take care of your meetings, notes and reminders. "
                            "I can even take control of your computer to make life easier.")
+
+    def on_second_copy():
+        conn = server.nextPendingConnection()
+        if conn:
+            conn.readAll()
+        open_chat()
+
+    server.newConnection.connect(on_second_copy)
 
     if cfg.get("onboarded"):
         start_assistant()
