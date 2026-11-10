@@ -449,8 +449,22 @@ def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200
         if filters.get("count"):
             picked = picked[:filters["count"]]
         mode = "specific" if filters.get("count") else mode
-    return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(picked),
-            "items": [s[3] for s in picked[:limit]]}
+    items, seen = [], {}
+    for s_ in picked:  # the same file forwarded to several chats is listed once
+        it = s_[3]
+        try:
+            k = (it["name"].lower(), Path(it["path"]).stat().st_size)
+        except OSError:
+            k = (it["path"],)
+        if k in seen:
+            if it["chat"] and it["chat"] not in seen[k]["also_in"]:
+                seen[k]["also_in"].append(it["chat"])
+            continue
+        it["also_in"] = [it["chat"]] if it["chat"] else []
+        seen[k] = it
+        items.append(it)
+    return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(items),
+            "items": items[:limit]}
 
 
 def compile_folder(items: list[dict], label: str) -> Path:
@@ -480,7 +494,7 @@ def _fmt(r: dict, n=12) -> str:
     head = {"all": f"All {kind}: {r['total']} found.",
             "specific": f"{r['total']} matching file(s).",
             "close": "No exact match. These are the closest - ask the user if one of them is right."}[r["mode"]]
-    lines = [f"{i}. {it['name']}" + (f" (chat: {it['chat']})" if it["chat"] else "")
+    lines = [f"{i}. {it['name']}" + (f" (chat: {', '.join(it.get('also_in') or [it['chat']])})" if it["chat"] else "")
              + (f" [{it['type']}]" if it["type"] else "") + (f" total {it['amount']}" if it["amount"] else "")
              + f" - {_pretty_date(it.get('date'), it['mtime'])}"
              for i, it in enumerate(r["items"][:n], 1)]
@@ -528,7 +542,7 @@ def _wa_ready() -> bool:
 def doc_search(query, source="any"):
     cfg = CTX.get("cfg", {})
     if source == "whatsapp" and not _wa_ready():
-        return "WhatsApp is not connected on this laptop yet, so I can't search it."
+        return "No WhatsApp files are saved on this laptop yet. Link WhatsApp (whatsapp_link) and then run whatsapp_sync, or tell the user to do so."
     with _index_lock:  # wait for a background index run instead of doing the work twice
         reindex(cfg, include_computer=source != "whatsapp", include_whatsapp=source != "computer")
     return _fmt(search(query, source))

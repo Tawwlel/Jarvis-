@@ -19,3 +19,4 @@ cryptography
 requests
 edge-tts
 miniaudio
+playwright

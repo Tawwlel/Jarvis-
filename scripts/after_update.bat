@@ -5,6 +5,9 @@ cd /d "%~dp0.."
 echo Updating dependencies...
 pip install -r requirements.txt --quiet
 
+echo Setting up WhatsApp reader...
+python -m playwright install chromium
+
 echo Checking voices...
 python scripts\download_voices.py
 
