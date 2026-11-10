@@ -235,6 +235,41 @@ def main():
 
     server.newConnection.connect(on_second_copy)
 
+    # ----- automatic updates (zip installs): check at start and every 6 hours -----
+    from PySide6.QtCore import QObject, QTimer, Signal
+    import updater
+
+    class _Upd(QObject):
+        done = Signal(str)
+    upd = _Upd()
+
+    def restart_now():
+        flags = 0x00000008 if sys.platform == "win32" else 0  # detached
+        subprocess.Popen([sys.executable] + sys.argv, creationflags=flags)
+        app.quit()
+
+    def on_updated(note):
+        msg = "I just updated myself" + (f" ({note})" if note else "") + ". Restarting in a few seconds..."
+        bridge.chat("assistant", msg)
+        if keep["tray"]:
+            keep["tray"].showMessage("Jarvis", "Updated - restarting.", QSystemTrayIcon.Information, 3000)
+        QTimer.singleShot(8000, restart_now)
+
+    upd.done.connect(lambda r: on_updated(r) if r != "none" else None)
+
+    def check_updates():
+        def work():
+            if updater.check_and_update(print) == "updated":
+                upd.done.emit(updater.whats_new())
+        threading.Thread(target=work, daemon=True).start()
+
+    if updater.enabled():
+        QTimer.singleShot(20000, check_updates)
+        tick = QTimer(app)
+        tick.timeout.connect(check_updates)
+        tick.start(6 * 3600 * 1000)
+        keep["upd_timer"] = tick
+
     if cfg.get("onboarded"):
         start_assistant()
     else:

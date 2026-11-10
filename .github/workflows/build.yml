@@ -1,0 +1,64 @@
+name: Build Jarvis.zip
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["requirements.txt", "build/**", ".github/workflows/build.yml", "assets/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force Jarvis/app, Jarvis/runtime | Out-Null
+          # app code (the app updates this part by itself later)
+          Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", ".github", "Jarvis", "tests", "build") } |
+            Copy-Item -Destination Jarvis/app -Recurse -Force
+          "${{ github.sha }}" | Out-File -NoNewline -Encoding ascii Jarvis/app/VERSION
+          Copy-Item build/README_FIRST.txt Jarvis/
+
+      - name: Python runtime + libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $v = "3.13.1"
+          Invoke-WebRequest "https://www.python.org/ftp/python/$v/python-$v-embed-amd64.zip" -OutFile py.zip
+          Expand-Archive py.zip Jarvis/runtime
+          $pth = Get-ChildItem Jarvis/runtime/python*._pth
+          Set-Content $pth.FullName "python313.zip`n.`nLib\site-packages`n..\app\scripts`nimport site"
+          Invoke-WebRequest https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
+          & Jarvis/runtime/python.exe get-pip.py --no-warn-script-location
+          & Jarvis/runtime/python.exe -m pip install -r requirements.txt rapidocr-onnxruntime --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "pip failed" }
+          & Jarvis/runtime/python.exe -m playwright install chromium
+
+      - name: Jarvis.exe launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pip install pyinstaller pillow
+          python -c "from PIL import Image; Image.open('assets/logo.png').convert('RGBA').save('logo.ico', sizes=[(256,256),(64,64),(32,32)])"
+          pyinstaller --onefile --noconsole --name Jarvis --icon logo.ico build/launcher.py
+          Copy-Item dist/Jarvis.exe Jarvis/Jarvis.exe
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path Jarvis -DestinationPath Jarvis.zip -CompressionLevel Optimal
+
+      - name: Publish to the download release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view download 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create download --title "Jarvis download" --notes "Latest Jarvis.zip" }
+          gh release upload download Jarvis.zip --clobber

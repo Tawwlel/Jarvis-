@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, Q
                                QLineEdit, QMenu, QPushButton, QSystemTrayIcon, QTabWidget,
                                QTextBrowser, QTimeEdit, QVBoxLayout, QWidget)
 
-RED, GOLD = QColor(255, 48, 48), QColor(245, 193, 74)
+RED, GOLD = QColor(255, 107, 87), QColor(255, 179, 71)
+FONT = "Bahnschrift"  # ships with Windows 10/11: slim, technical look
 STATE_TEXT = {"idle": "", "listening": "LISTENING", "thinking": "THINKING",
               "speaking": "SPEAKING", "working": "WORKING", "notes": "TAKING NOTES"}
 
@@ -124,8 +125,8 @@ class Overlay(QWidget):
                          | QPainter.TextAntialiasing)
         cx, cy, lv, t = self.W / 2, 140.0, self.level, self.t
         glow = QRadialGradient(cx, cy, 118)
-        glow.setColorAt(0, QColor(255, 60, 60, int(95 * lv + 28)))
-        glow.setColorAt(1, QColor(255, 60, 60, 0))
+        glow.setColorAt(0, QColor(255, 107, 87, int(95 * lv + 28)))
+        glow.setColorAt(1, QColor(255, 107, 87, 0))
         p.setPen(Qt.NoPen)
         p.setBrush(glow)
         p.drawEllipse(QPointF(cx, cy), 118, 118)
@@ -133,11 +134,11 @@ class Overlay(QWidget):
         p.setPen(QPen(QColor(255, 80, 80, 55), 1))
         p.drawEllipse(QPointF(cx, cy), 82 + lv * 9, 82 + lv * 9)
         # HUD arcs, like an arc-reactor read-out
-        for i, (r, w, speed, span, n) in enumerate([(92, 2.2, 1.0, 62, 3), (105, 1.6, -1.5, 34, 4),
-                                                   (118, 1.1, 0.7, 20, 6)]):
+        for i, (r, w, speed, span, n) in enumerate([(92, 2.6, 1.0, 62, 3), (105, 3.4, -1.5, 34, 4),
+                                                   (118, 1.1, 0.7, 20, 6), (128, 1.0, -0.4, 4, 40)]):
             rad = r + lv * (10 + 6 * i)
-            col = QColor(GOLD)
-            col.setAlpha(190 if i == 0 else 120)
+            col = QColor(RED if i == 1 else GOLD)
+            col.setAlpha(190 if i < 2 else 120)
             pen = QPen(col, w)
             pen.setCapStyle(Qt.RoundCap)
             p.setPen(pen)
@@ -148,7 +149,7 @@ class Overlay(QWidget):
         s = 128 * (1 + 0.30 * lv + 0.02 * math.sin(t * 2))
         p.drawPixmap(QRectF(cx - s / 2, cy - s / 2, s, s), self.logo, QRectF(self.logo.rect()))
         if self.caption:
-            f = QFont("Segoe UI", 9, QFont.Bold)
+            f = QFont(FONT, 9, QFont.Bold)
             f.setLetterSpacing(QFont.AbsoluteSpacing, 3)
             p.setFont(f)
             p.setPen(QColor(255, 255, 255, 225))
@@ -172,21 +173,21 @@ class Overlay(QWidget):
 
 
 QSS = """
-QWidget{background:#0a0d14;color:#e6ebf5;font-family:'Segoe UI';font-size:13px}
-QLineEdit,QComboBox,QTimeEdit{background:#111826;border:1px solid #2a3346;border-radius:6px;padding:7px}
-QLineEdit:focus,QComboBox:focus,QTimeEdit:focus{border:1px solid #ff3030}
-QComboBox QAbstractItemView{background:#111826;selection-background-color:#ff3030}
-QPushButton{background:#ff3030;color:white;border:none;border-radius:6px;padding:10px 18px;font-weight:600}
-QPushButton:hover{background:#ff5252}
-QPushButton#ghost{background:transparent;border:1px solid #2a3346;padding:7px 12px}
-QPushButton#ghost:hover{border-color:#f5c14a}
+QWidget{background:#120706;color:#ffe3b8;font-family:'Bahnschrift','Segoe UI';font-size:14px}
+QLineEdit,QComboBox,QTimeEdit{background:#1d0c09;border:1px solid #5a2a1c;border-radius:0;padding:8px}
+QLineEdit:focus,QComboBox:focus,QTimeEdit:focus{border:1px solid #ffb347}
+QComboBox QAbstractItemView{background:#1d0c09;selection-background-color:#ff6b57}
+QPushButton{background:rgba(255,179,71,.14);color:#ffb347;border:1px solid #ffb347;border-radius:0;padding:10px 20px;font-weight:600;letter-spacing:2px}
+QPushButton:hover{background:rgba(255,179,71,.30)}
+QPushButton#ghost{background:transparent;border:1px solid #5a2a1c;color:#d9a97a;padding:7px 12px}
+QPushButton#ghost:hover{border-color:#ffb347}
 QCheckBox{spacing:8px}
-QLabel#section{color:#f5c14a;font-size:10px;letter-spacing:3px;font-weight:600}
-QLabel#sub{color:#8b95aa}
-QTabWidget::pane{border:1px solid #1f283a;border-radius:6px;top:-1px}
-QTabBar::tab{background:#0a0d14;color:#8b95aa;padding:9px 14px;border:none;border-bottom:2px solid transparent}
-QTabBar::tab:selected{color:#e6ebf5;border-bottom:2px solid #ff3030}
-QTextBrowser{background:#0d121c;border:1px solid #1f283a;border-radius:6px;padding:8px}
+QLabel#section{color:#ffb347;font-size:11px;letter-spacing:3px;font-weight:600}
+QLabel#sub{color:#b98e68}
+QTabWidget::pane{border:1px solid #3a1a12;top:-1px}
+QTabBar::tab{background:#120706;color:#b98e68;padding:9px 14px;border:none;border-bottom:2px solid transparent}
+QTabBar::tab:selected{color:#ffe3b8;border-bottom:2px solid #ff6b57}
+QTextBrowser{background:#0c0504;border:1px solid #3a1a12;padding:10px}
 """
 
 PROVIDERS = {
@@ -470,36 +471,99 @@ class SettingsWindow(QWidget):
         self.close()
 
 
+class HoloHeader(QWidget):
+    """Animated rings + the assistant's name and state, like the film's holographic console."""
+
+    def __init__(self, bridge: Bridge, name: str):
+        super().__init__()
+        self.setFixedHeight(176)
+        self.name, self.state, self.t = name, "idle", 0.0
+        bridge.state_sig.connect(self._set)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(33)
+
+    def _set(self, s):
+        self.state = s
+
+    def _tick(self):
+        self.t += 0.033
+        if self.isVisible():
+            self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
+        w, h, t = self.width(), self.height(), self.t
+        p.fillRect(self.rect(), QColor("#120706"))
+        cx, cy = w / 2, 72
+        busy = self.state in ("listening", "speaking", "thinking", "working")
+        pulse = 1 + (0.04 * math.sin(t * 6) if busy else 0.0)
+        for r, wd, speed, dash, col in [(66, 1.2, 0.3, 6, GOLD), (56, 4.0, -0.6, 22, RED), (46, 1.2, 0.9, 3, GOLD)]:
+            pen = QPen(col, wd)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            rr = r * pulse
+            for k in range(int(360 / (dash * 2))):
+                a = (k * dash * 2 + t * speed * 60) % 360
+                p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), int(a * 16), int(dash * 16))
+        p.setPen(Qt.NoPen)
+        g = QRadialGradient(cx, cy, 34)
+        g.setColorAt(0, QColor(255, 230, 190, 235))
+        g.setColorAt(1, QColor(255, 107, 87, 0))
+        p.setBrush(g)
+        p.drawEllipse(QPointF(cx, cy), 34 * pulse, 34 * pulse)
+        f = QFont(FONT, 10, QFont.Bold)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, 4)
+        p.setFont(f)
+        p.setPen(GOLD)
+        p.drawText(QRectF(18, h - 28, 280, 20), Qt.AlignLeft, f"{self.name.upper()} \u00b7 APRICOT DIGITAL")
+        p.setPen(RED)
+        p.drawText(QRectF(w - 258, h - 28, 240, 20), Qt.AlignRight, STATE_TEXT.get(self.state, "") or "STANDING BY")
+
+
 class ChatWindow(QWidget):
-    """Plain text chat with the assistant. Spoken conversations show up here too."""
+    """The command window: holographic header, conversation, and a message bar. Spoken chats show up here too."""
     submitted = Signal(str, bool)
 
     def __init__(self, bridge: Bridge, name: str):
         super().__init__()
-        self.setWindowTitle(f"{name} - chat")
+        self.setWindowTitle(f"{name} by Apricot Digital")
         self.setStyleSheet(QSS)
-        self.resize(440, 560)
+        self.resize(560, 720)
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 14)
+        lay.setSpacing(10)
+        lay.addWidget(HoloHeader(bridge, name))
         self.log = QTextBrowser()
         self.log.setOpenExternalLinks(True)
         self.input = QLineEdit()
-        self.input.setPlaceholderText(f"Message {name}...")
+        self.input.setPlaceholderText(f"Say or type...  e.g. \"sales invoices from WhatsApp\"")
         self.input.returnPressed.connect(self._send)
         self.speak = QCheckBox("Speak replies aloud")
-        send = QPushButton("Send")
+        send = QPushButton("SEND")
         send.clicked.connect(self._send)
         row = QHBoxLayout()
+        row.setContentsMargins(14, 0, 14, 0)
         row.addWidget(self.input, 1)
         row.addWidget(send)
-        lay.addWidget(self.log, 1)
+        body = QHBoxLayout()
+        body.setContentsMargins(14, 0, 14, 0)
+        body.addWidget(self.log)
+        lay.addLayout(body, 1)
         lay.addLayout(row)
-        lay.addWidget(self.speak)
+        chk = QHBoxLayout()
+        chk.setContentsMargins(14, 0, 14, 0)
+        chk.addWidget(self.speak)
+        lay.addLayout(chk)
         bridge.chat_sig.connect(self.add)
 
     def add(self, role: str, text: str):
-        who, color = ("You", "#8b95aa") if role == "user" else ("Jarvis", "#f5c14a")
+        who, color = ("YOU", "#b98e68") if role == "user" else ("JARVIS", "#ffb347")
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        self.log.append(f'<p style="margin:6px 0"><b style="color:{color}">{who}</b><br>{safe}</p>')
+        card = "border-left:3px solid #ff6b57;" if role != "user" else "border-left:3px solid #5a2a1c;"
+        self.log.append(f'<div style="{card}margin:8px 0;padding-left:10px">'
+                        f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span><br>{safe}</div>')
 
     def _send(self):
         t = self.input.text().strip()
