@@ -119,18 +119,36 @@ def main():
     def open_chat():
         if keep["chat"] is None:
             keep["chat"] = ChatWindow(bridge, name())
-            keep["chat"].submitted.connect(lambda t, sp: keep["assistant"].submit_text(t, sp))
+            keep["chat"].submitted.connect(
+                lambda t, sp: keep["assistant"].submit_text(t, sp) if keep["assistant"]
+                else keep["chat"].add("assistant", "One moment, I'm still starting up."))
         keep["chat"].show()
         keep["chat"].raise_()
 
-    def start_assistant():
-        from assistant import Assistant
+    def start_assistant(welcome: str | None = None):
+        """Loads models on a background thread so the window never freezes (first run downloads them)."""
+        def work():
+            try:
+                from assistant import Assistant
 
-        keep["assistant"] = Assistant(cfg, bridge, store)
-        keep["assistant"].start()
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            keep["tray"] = make_tray(app, LOGO, name(), keep["assistant"].talk, open_chat,
-                                     lambda: open_settings(False), app.quit)
+                bridge.chat("assistant", "Getting ready... the first start downloads the listening model, "
+                                         "so this can take a few minutes.")
+                a = Assistant(cfg, bridge, store)
+                a.start()
+                keep["assistant"] = a
+                bridge.chat("assistant", f"I'm ready. Press {cfg.get('hotkey', 'ctrl+alt+j')} or say hey {name()}.")
+                if welcome:
+                    a.say(welcome)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                bridge.chat("assistant", f"I couldn't start: {e}")
+
+        if QSystemTrayIcon.isSystemTrayAvailable() and keep["tray"] is None:
+            ask = lambda: keep["assistant"] and keep["assistant"].talk()
+            keep["tray"] = make_tray(app, LOGO, name(), ask, open_chat, lambda: open_settings(False), app.quit)
+        open_chat()
+        threading.Thread(target=work, daemon=True).start()
 
     def open_settings(first):
         win = SettingsWindow(cfg, LOGO, first, VOICES, preview, store=store,
@@ -140,10 +158,8 @@ def main():
             apply_values(cfg, v, store, mem)
             save_config(cfg)
             if first:
-                start_assistant()
-                keep["assistant"].say(
-                    f"All set, {cfg['owner_name'] or 'friend'}. Press {cfg.get('hotkey', 'ctrl+alt+j')} "
-                    f"or say hey {name()} whenever you need me.")
+                start_assistant(f"All set, {cfg['owner_name'] or 'friend'}. Press {cfg.get('hotkey', 'ctrl+alt+j')} "
+                                f"or say hey {name()} whenever you need me.")
             else:  # restart so shortcut, wake word, slots and abilities take effect
                 subprocess.Popen([sys.executable] + sys.argv)
                 app.quit()
