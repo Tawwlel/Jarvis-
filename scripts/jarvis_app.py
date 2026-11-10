@@ -49,7 +49,7 @@ def apply_values(cfg: dict, v: dict, store, mem):
     if v["model_strong"]:
         models["tier2_cloud"] = v["model_strong"]
     models["tier0_local"] = v["model_local"] or None
-    models["tier0_local_heavy"] = v.get("model_local_heavy") or None
+    models["tier0_local_heavy"] = None
     priv = cfg.setdefault("privacy", {})
     priv.update(mode=v["privacy_mode"], private_terms=v["private_terms"], local_only_terms=v["local_only_terms"])
     cfg["onboarded"] = True

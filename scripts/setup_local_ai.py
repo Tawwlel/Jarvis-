@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LIGHT, HEAVY = "gemma3:1b", "gemma3:4b"
+LIGHT = "gemma3:1b"
+OLD_HEAVY = "gemma3:4b"  # no longer used: too big for 8 GB laptops
 HOST = "http://localhost:11434"
 
 
@@ -84,18 +85,18 @@ def start_server(exe: str) -> bool:
     return False
 
 
-def save_models(light: str | None, heavy: str | None):
+def save_models(light: str | None):
     p = ROOT / "config.local.json"
     cfg = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     models = cfg.setdefault("models", {})
     changed = False
     if light and not models.get("tier0_local"):
         models["tier0_local"], changed = light, True
-    if heavy and not models.get("tier0_local_heavy"):
-        models["tier0_local_heavy"], changed = heavy, True
+    if models.get("tier0_local_heavy"):
+        models["tier0_local_heavy"], changed = None, True
     if changed:
         p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-        print("Jarvis settings updated: light =", models.get("tier0_local"), "| heavy =", models.get("tier0_local_heavy"))
+        print("Jarvis settings updated: local model =", models.get("tier0_local"))
 
 
 def main() -> int:
@@ -108,20 +109,17 @@ def main() -> int:
     if not start_server(exe):
         print("Ollama is installed but not running. Open 'Ollama' from the Start menu, then run update again.")
         return 1
-    ram = ram_gb()
-    from sysinfo import HEAVY_MIN_RAM
-    wanted = [LIGHT] + ([HEAVY] if ram >= HEAVY_MIN_RAM else [])
-    if HEAVY not in wanted:
-        print(f"This PC has {ram:.0f} GB of memory, so only the light model is installed.")
-    got = []
-    for m in wanted:
-        print(f"Downloading {m} (skipped if already there)...")
-        if subprocess.run([exe, "pull", m]).returncode == 0:
-            got.append(m)
-        else:
-            print(f"Could not download {m}. Run update again later.")
-    save_models(LIGHT if LIGHT in got else None, HEAVY if HEAVY in got else None)
-    return 0 if len(got) == len(wanted) else 1
+    # remove the big model from earlier versions (frees about 3 GB of disk and any memory it holds)
+    installed = subprocess.run([exe, "list"], capture_output=True, text=True).stdout
+    if OLD_HEAVY in installed:
+        print(f"Removing {OLD_HEAVY} (too big for this setup)...")
+        subprocess.run([exe, "rm", OLD_HEAVY])
+    print(f"Downloading {LIGHT} (skipped if already there)...")
+    ok = subprocess.run([exe, "pull", LIGHT]).returncode == 0
+    if not ok:
+        print(f"Could not download {LIGHT}. Run update again later.")
+    save_models(LIGHT if ok else None)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
