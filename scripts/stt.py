@@ -30,7 +30,8 @@ class JarvisEars:
         )
 
     def transcribe(self, audio_path: str) -> str:
-        segments, _info = self.model.transcribe(audio_path, beam_size=5)
+        # vad_filter skips silence, which stops Whisper inventing words in quiet audio
+        segments, _info = self.model.transcribe(audio_path, beam_size=5, vad_filter=True)
         return " ".join(seg.text.strip() for seg in segments)
 
 

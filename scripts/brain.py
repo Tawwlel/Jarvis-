@@ -126,6 +126,21 @@ class Brain:
             messages.append({"role": "user", "content": results})
         return "I ran out of steps on that one. Tell me if you want me to continue."
 
+    def summarize_notes(self, key: str) -> str:
+        """One cheap Haiku call turns raw meeting notes into a short spoken summary."""
+        raw = self.mem.notes_text(key)[:30000]
+        if not raw:
+            return "I don't have any notes for that meeting."
+        resp = self.client.messages.create(
+            model=self.models["tier1_cloud"], max_tokens=500,
+            system=("Summarize these raw meeting notes for the user. Plain sentences, no markdown "
+                    "or bullet symbols, because this is read aloud. Cover: the main points, any "
+                    "decisions, and action items with owners if mentioned. Under 120 words."),
+            messages=[{"role": "user", "content": raw}])
+        summary = "".join(b.text for b in resp.content if b.type == "text").strip()
+        self.mem.add_note(key, summary, kind="summary")
+        return summary
+
     @staticmethod
     def _result_content(r):
         if isinstance(r, dict) and "image_b64" in r:

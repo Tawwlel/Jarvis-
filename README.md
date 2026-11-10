@@ -9,16 +9,19 @@ you pull them with one double-click.
 
 ## First-time setup (on your Windows PC)
 
-1. Install [Python 3.10+](https://python.org) if you don't have it.
-2. Install [git](https://git-scm.com/download/win) if you don't have it.
-3. Clone this repo (or if you already have the folder, skip to step 4):
-   ```
-   git clone https://github.com/Tawwlel/jarvis-
-   cd jarvis-
-   ```
-4. Double-click `setup.bat` (or run it from a terminal). This installs
-   dependencies, downloads the 5 voices (~200MB), and creates your personal
-   `config.local.json` for you to add your Anthropic API key to.
+1. Install [Python 3.10+](https://python.org) and [git](https://git-scm.com/download/win).
+2. `git clone https://github.com/Tawwlel/Jarvis-` and open the folder.
+3. Double-click `setup.bat`. It installs everything, downloads the voices, and starts Jarvis.
+4. Jarvis introduces itself and asks your name, what you're working on, which voice you like,
+   your API key, an optional calendar link, and whether to allow computer control.
+   Nothing to edit by hand. Afterwards, just double-click `start.bat`.
+
+## Meeting notes
+
+When a meeting starts Jarvis offers to take notes. Press Enter and say "yes", or say "take notes"
+any time. While taking notes it only listens and saves text, so it costs no tokens. Say "stop notes"
+(or press Ctrl+C) and it offers a short summary. Later you can ask things like "what did we decide
+in the client sync?". Notes come from the microphone, so for online calls use speakers or say the key points aloud.
 
 ## Getting updates later
 

@@ -1,7 +1,8 @@
 {
-  "_comment": "Copy to config.local.json and fill in. One app for everyone: switch features on/off per person here. config.local.json is gitignored so keys and personal settings never reach GitHub.",
+  "_comment": "Jarvis fills this in for you on first run (name, voice, API key, calendar). Advanced users can edit config.local.json by hand. It is gitignored so keys and personal settings never reach GitHub.",
 
-  "owner_name": "Your Name",
+  "onboarded": false,
+  "owner_name": "",
   "voice": "amy",
   "meeting_reminder_minutes": 10,
 
@@ -15,8 +16,9 @@
 
   "tools_enabled": {
     "reminders": true,
-    "calendar": true,
-    "computer_control": true,
+    "calendar": false,
+    "notes": true,
+    "computer_control": false,
     "visual_explainer": true
   },
 

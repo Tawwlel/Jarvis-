@@ -85,11 +85,14 @@ def enabled_tools(cfg: dict) -> list:
         import computer  # noqa: F401  (registers computer_* tools)
     if flags.get("calendar"):
         import jcalendar  # noqa: F401  (registers calendar_* tools)
+    if flags.get("notes"):
+        import notes  # noqa: F401  (registers note tools)
     groups = {
         "reminders": ["set_reminder"],
         "visual_explainer": ["show_visual"],
         "computer_control": [n for n in REGISTRY if n.startswith("computer_")],
         "calendar": [n for n in REGISTRY if n.startswith("calendar_")],
+        "notes": ["notes_search", "note_add"],
     }
     names = {"get_time", "remember_fact"}
     for flag, tnames in groups.items():

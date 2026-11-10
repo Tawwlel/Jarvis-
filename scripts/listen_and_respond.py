@@ -1,74 +1,78 @@
 """
-Jarvis voice loop (v1 - push-to-talk).
+Jarvis - main voice app (push-to-talk).
 
-Press ENTER, speak your command, press ENTER again to stop recording.
-Jarvis transcribes it, prints it (this is where you'll later plug in the
-Claude API call to decide what to do / what to say back), and speaks the
-reply in your chosen voice.
+Press ENTER, speak, press ENTER again. On the very first run Jarvis introduces
+itself and sets everything up (name, what you work on, voice, API key, calendar).
 
-This is the proof-of-concept for the voice I/O layer. Next step after this
-works: swap the wake-word trigger in for push-to-talk, and plug Claude's
-API in for the "decide what to do" step.
-
-Run on your Windows PC (needs a real mic/speaker):
-    python listen_and_respond.py --voice ryan
+Run:   python scripts/listen_and_respond.py        (or double-click start.bat)
 """
 import argparse
+import getpass
 import queue
 import sys
+import threading
 import wave
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
 
-import threading
-
+import notes as notes_mod
+import onboarding
 import tools
 from brain import Brain
-from config import load_config
+from config import load_config, save_config
+from memory import Memory
+from notes import NotesSession
 from scheduler import Scheduler
 from stt import JarvisEars
 from tts import JarvisVoice
 
 SAMPLE_RATE = 16000
+CHUNK_SECONDS = 20  # notes mode listens in chunks of this length
+AUDIO = Path(__file__).parent.parent / "audio"
+AUDIO.mkdir(exist_ok=True)
+MIC_FILE = str(AUDIO / "_mic_input.wav")
 
 
-def record_until_enter(out_path: str):
-    print("Press ENTER to start recording...")
-    input()
-    print("Recording... press ENTER to stop.")
-
-    q = queue.Queue()
-
-    def callback(indata, frames, time, status):
-        q.put(indata.copy())
-
-    frames = []
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=callback):
-        import threading
-        stop_flag = {"stop": False}
-
-        def wait_for_enter():
-            input()
-            stop_flag["stop"] = True
-
-        t = threading.Thread(target=wait_for_enter)
-        t.start()
-        while not stop_flag["stop"]:
-            try:
-                frames.append(q.get(timeout=0.1))
-            except queue.Empty:
-                continue
-        t.join()
-
-    audio = np.concatenate(frames, axis=0)
-    with wave.open(out_path, "wb") as wf:
+def write_wav(path: str, audio: np.ndarray):
+    with wave.open(path, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)  # int16
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio.tobytes())
 
-    print("Saved recording to", out_path)
+
+def record_until_enter(out_path: str, skip_start: bool = False):
+    if not skip_start:
+        print("Press ENTER to start recording...")
+        input()
+    print("Recording... press ENTER to stop.")
+    q = queue.Queue()
+    frames = []
+    stop = {"flag": False}
+
+    def waiter():
+        input()
+        stop["flag"] = True
+
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16",
+                        callback=lambda indata, *_: q.put(indata.copy())):
+        t = threading.Thread(target=waiter)
+        t.start()
+        while not stop["flag"]:
+            try:
+                frames.append(q.get(timeout=0.1))
+            except queue.Empty:
+                continue
+        t.join()
+    write_wav(out_path, np.concatenate(frames, axis=0))
+
+
+def record_seconds(out_path: str, seconds: int):
+    audio = sd.rec(int(seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="int16")
+    sd.wait()
+    write_wav(out_path, audio)
 
 
 def main():
@@ -78,39 +82,81 @@ def main():
     args = parser.parse_args()
 
     cfg = load_config()
-    voice = args.voice or cfg.get("voice", "amy")
-    brain = Brain(cfg)
     ears = JarvisEars(model_size=args.whisper_model)
     mouth = JarvisVoice()
-
     speak_lock = threading.Lock()
+    voice = {"name": args.voice or cfg.get("voice", "amy")}
 
     def say(msg: str):
         print(f"Jarvis: {msg}")
         with speak_lock:
-            mouth.speak(msg, voice_name=voice, play=True)
+            mouth.speak(msg, voice_name=voice["name"], play=True)
+
+    def listen() -> str:
+        record_until_enter(MIC_FILE)
+        text = ears.transcribe(MIC_FILE)
+        print(f"You said: {text}")
+        return text
+
+    # ---------- first-run setup ----------
+    if not cfg.get("onboarded"):
+        def ask() -> str:
+            typed = input("Type your answer, or just press Enter to speak: ").strip()
+            if typed:
+                return typed
+            record_until_enter(MIC_FILE, skip_start=True)
+            text = ears.transcribe(MIC_FILE)
+            print(f"You said: {text}")
+            return text
+
+        def preview(v, msg):
+            with speak_lock:
+                mouth.speak(msg, voice_name=v, play=True)
+
+        cfg = onboarding.run(cfg, say, ask, getpass.getpass, preview, Memory())
+        save_config(cfg)
+        voice["name"] = cfg["voice"]
+        print("\nSetup saved. You can change anything later in config.local.json.\n")
+
+    brain = Brain(cfg)
+    notes = NotesSession(brain.mem, brain.summarize_notes)
 
     def confirm(question: str) -> bool:
         say(question)
         return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
 
     tools.CTX["say"], tools.CTX["confirm"] = say, confirm
-    Scheduler(cfg, brain.mem, say, cfg.get("tools_enabled", {}).get("calendar", False)).start()
+    Scheduler(cfg, brain.mem, say, cfg.get("tools_enabled", {}).get("calendar", False), notes).start()
 
-    print(f"Jarvis ready. Voice = {voice}. Ctrl+C to quit.\n")
+    def notes_mode():
+        """Listen continuously and just store text. No model calls = no token cost."""
+        try:
+            while True:
+                record_seconds(MIC_FILE, CHUNK_SECONDS)
+                text = ears.transcribe(MIC_FILE).strip()
+                if notes_mod.looks_like_noise(text):
+                    continue
+                if notes_mod.STOP.search(text):
+                    break
+                notes.add(text)
+                print(f"[note] {text}")
+        except KeyboardInterrupt:
+            print("\nStopping notes.")
+        say(notes.stop())
 
+    print(f"Jarvis ready, {cfg.get('owner_name', '')}. Ctrl+C to quit.\n")
     while True:
         try:
-            record_path = "audio/_mic_input.wav"
-            record_until_enter(record_path)
-
-            text = ears.transcribe(record_path)
-            print(f"You said: {text}")
-
+            text = listen()
             if not text.strip():
                 continue
+            reply = notes.handle(text)
+            if reply is not None:
+                say(reply)
+                if notes.state == "active":
+                    notes_mode()
+                continue
             say(brain.respond(text))
-
         except KeyboardInterrupt:
             print("\nGoodbye.")
             sys.exit(0)

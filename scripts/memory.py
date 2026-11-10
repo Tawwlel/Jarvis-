@@ -15,8 +15,28 @@ class Memory:
             CREATE TABLE IF NOT EXISTS messages(ts REAL, role TEXT, content TEXT);
             CREATE TABLE IF NOT EXISTS facts(key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY, due REAL, text TEXT, done INTEGER DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS notes(ts REAL, meeting TEXT, kind TEXT, text TEXT);
             """
         )
+
+    # ---- meeting notes ----
+    def add_note(self, meeting: str, text: str, kind: str = "note"):
+        self.db.execute("INSERT INTO notes VALUES(?,?,?,?)", (time.time(), meeting, kind, text))
+        self.db.commit()
+
+    def notes_text(self, meeting: str, kind: str = "note") -> str:
+        rows = self.db.execute(
+            "SELECT text FROM notes WHERE meeting=? AND kind=? ORDER BY ts", (meeting, kind)
+        ).fetchall()
+        return "\n".join(r[0] for r in rows)
+
+    def notes_search(self, query: str = "", days: int = 14) -> str:
+        since = time.time() - days * 86400
+        rows = self.db.execute(
+            "SELECT meeting, kind, text FROM notes WHERE ts>=? AND meeting LIKE ? ORDER BY ts",
+            (since, f"%{query}%"),
+        ).fetchall()
+        return "\n".join(f"[{m} | {k}] {t}" for m, k, t in rows)
 
     def add_message(self, role: str, content: str):
         self.db.execute("INSERT INTO messages VALUES(?,?,?)", (time.time(), role, content))

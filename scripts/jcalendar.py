@@ -99,6 +99,13 @@ def calendar_add(title, start_iso, minutes=30):
     return f"Added '{title}' at {start_iso}."
 
 
+def starting_now(window_seconds: int = 90) -> list[dict]:
+    """Meetings that began within the last window (or start in the next 30s)."""
+    now = dt.datetime.now(_local_tz())
+    lo, hi = now - dt.timedelta(seconds=window_seconds), now + dt.timedelta(seconds=30)
+    return [e for e in events_between(lo, hi) if not e["all_day"] and lo <= e["start"] <= hi]
+
+
 def upcoming_within(minutes: int) -> list[dict]:
     """Used by the background scheduler for meeting reminders."""
     now = dt.datetime.now(_local_tz())
