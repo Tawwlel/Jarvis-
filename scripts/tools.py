@@ -94,6 +94,7 @@ def enabled_tools(cfg: dict) -> list:
     if flags.get("documents", True):
         import docsearch  # noqa: F401  (registers doc_* tools)
         import whatsapp_reader  # noqa: F401  (registers whatsapp_* tools)
+        import whatsapp_agent  # noqa: F401  (registers the WhatsApp document agent's tools)
     import briefing  # noqa: F401  (registers update_settings)
     groups = {
         "reminders": ["set_reminder"],

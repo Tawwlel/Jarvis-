@@ -104,6 +104,8 @@ class Assistant:
         if self.cfg.get("tools_enabled", {}).get("documents", True):
             import docsearch  # build the document index in the background so the first search is quick
             threading.Thread(target=docsearch.background_index, args=(self.cfg,), daemon=True).start()
+            from whatsapp_agent import WhatsAppAgent  # separate worker: keeps WhatsApp documents read and ready
+            WhatsAppAgent(self.cfg, lambda t: self.bridge.chat("assistant", t)).start()
 
     # ---------- triggers ----------
     def on_hotkey(self):
