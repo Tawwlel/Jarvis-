@@ -5,6 +5,8 @@ the on-screen orb. Runs on worker threads; the UI only receives signals.
 import queue
 import re
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import audio
 import briefing
@@ -25,14 +27,35 @@ class Assistant:
     def __init__(self, cfg: dict, bridge, secrets=None):
         self.cfg, self.bridge = cfg, bridge
         self.mic = audio.Mic()
-        self.mouth = make_tts(cfg, secrets)
-        self.ears = make_stt(cfg, secrets)
-        self.brain = Brain(cfg, secrets)
+        t0 = time.time()
+        # Load the heavy models side by side instead of one after another
+        with ThreadPoolExecutor(4) as pool:
+            ears = pool.submit(make_stt, cfg, secrets)
+            wake = pool.submit(JarvisEars, "tiny.en") if cfg.get("wake_word_enabled", True) else None
+            mouth = pool.submit(make_tts, cfg, secrets)
+            brain = pool.submit(Brain, cfg, secrets)
+            self.ears, self.mouth, self.brain = ears.result(), mouth.result(), brain.result()
+            self.wake_ears = wake.result() if wake else None
+            # warm everything up so the first real request is quick
+            warm = [pool.submit(e.warm_up) for e in (self.ears, self.wake_ears) if hasattr(e, "warm_up")]
+            warm.append(pool.submit(self._warm_voice))
+            for w in warm:
+                w.result()
+        print(f"[timing] startup {time.time() - t0:.1f}s")
         self.notes = NotesSession(self.brain.mem, self.brain.summarize_notes)
         self.triggers: queue.Queue = queue.Queue()
         self.busy = False
         self.stop_notes = threading.Event()
         self.speak_lock = threading.Lock()
+
+    def _warm_voice(self):
+        try:
+            if hasattr(self.mouth, "base"):
+                self.mouth.base._get_voice(self.cfg.get("voice", "amy"))
+            elif hasattr(self.mouth, "_get_voice"):
+                self.mouth._get_voice(self.cfg.get("voice", "amy"))
+        except Exception as e:
+            print("[voice]", e)
 
     # ---------- startup ----------
     @property
@@ -45,7 +68,7 @@ class Assistant:
         Scheduler(self.cfg, self.brain.mem, self.say, self.notes, self.brief,
                   on_offer=lambda: self.triggers.put({"text": "", "silent": False})).start()
         if self.cfg.get("wake_word_enabled", True):
-            WakeListener(self.mic, JarvisEars("tiny.en"), lambda: self.names,
+            WakeListener(self.mic, self.wake_ears, lambda: self.names,
                          self.on_wake, lambda: self.busy).start()
         try:
             start_hotkey(self.cfg.get("hotkey", "ctrl+alt+j"), self.on_hotkey)
@@ -61,8 +84,14 @@ class Assistant:
         audio.stop_playback()
         self.triggers.put({"text": "", "silent": False})
 
-    def on_wake(self, command: str):
+    def on_wake(self, command: str, clip=None):
         audio.stop_playback()
+        if command and clip is not None and self.cfg.get("language", "auto") != "en":
+            # the wake model only knows English: hear the command again with the Urdu-capable model
+            from wake import match_wake
+            full = self.ears.transcribe_array(clip)
+            again = match_wake(full, self.names)
+            command = again if again else full
         self.triggers.put({"text": command, "silent": False})
 
     def submit_text(self, text: str, speak: bool = False):
@@ -89,7 +118,9 @@ class Assistant:
             self.bridge.show()
             self.bridge.state("speaking")
             try:
+                t0 = time.time()
                 path = self.mouth.speak(msg, voice_name=self.cfg.get("voice", "amy"), play=False)
+                print(f"[timing] voice {time.time() - t0:.1f}s")
                 audio.play_wav(path, self.bridge.level)
             except Exception as e:
                 print("[speech]", e)
@@ -129,11 +160,13 @@ class Assistant:
     def hear(self, timeout=6.0) -> str:
         self.bridge.show()
         self.bridge.state("listening")
-        a = audio.listen_for_speech(self.mic, self.bridge.level, no_speech_timeout=timeout)
+        a = audio.listen_for_speech(self.mic, self.bridge.level, no_speech_timeout=timeout, end_silence=0.7)
         if a is None:
             return ""
         self.bridge.state("thinking")
+        t0 = time.time()
         text = self.ears.transcribe_array(a)
+        print(f"[timing] listening->text {time.time() - t0:.1f}s ({len(a) / 16000:.1f}s of speech)")
         print("You:", text)
         if text.strip():
             self.bridge.chat("user", text)
@@ -152,7 +185,9 @@ class Assistant:
                 reply = self.brief()
             if reply is None:
                 self.bridge.state("working")
+                t0 = time.time()
                 reply = self.brain.respond(text)
+                print(f"[timing] thinking {time.time() - t0:.1f}s")
             self.say(reply, silent)
             if silent:
                 return

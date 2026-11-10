@@ -66,6 +66,6 @@ class WakeListener(threading.Thread):
                 text = self.ears.transcribe_array(audio)
                 cmd = match_wake(text, self.get_names())
                 if cmd is not None:
-                    self.on_wake(cmd)
+                    self.on_wake(cmd, audio)
             except Exception as e:
                 print("[wake]", e)
