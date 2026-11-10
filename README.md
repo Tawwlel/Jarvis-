@@ -1,54 +1,53 @@
-# Jarvis
+# Jarvis by Apricot Digital
 
-A personal/client assistant: voice in/out, a tiered brain (free local model →
-Haiku → Sonnet), computer control, and a visual explainer window. One
-codebase — each install (you, a client) just has its own `config.local.json`.
+A personal assistant that lives on your PC: it hears you, speaks back in 5 voices, runs your
+meetings, notes, reminders and daily brief, and can take control of the computer. One app for
+everyone - each person's name, voice and abilities are set on the welcome screen.
 
-This repo is how updates get distributed: I (Claude) commit changes here,
-you pull them with one double-click.
-
-## First-time setup (on your Windows PC)
+## Install (Windows)
 
 1. Install [Python 3.10+](https://python.org) and [git](https://git-scm.com/download/win).
 2. `git clone https://github.com/Tawwlel/Jarvis-` and open the folder.
-3. Double-click `setup.bat`. It installs everything, downloads the voices, and starts Jarvis.
-4. Jarvis introduces itself and asks your name, what you're working on, which voice you like,
-   your API key, an optional calendar link, and whether to allow computer control.
-   Nothing to edit by hand. Afterwards, just double-click `start.bat`.
+3. Double-click `setup.bat`. It installs everything, downloads the voices and opens the welcome screen.
+4. Fill in your name, what you're working on, the names you'd like to call your assistant, your voice,
+   API key, optional calendar link, daily-brief time and shortcut. Click **Start Jarvis**.
+
+Later: double-click `start.bat` (runs in the background; check `jarvis.log` if something is off, or use
+`start_debug.bat`). Double-click `update.bat` to get new versions.
+
+## Calling Jarvis
+
+- Say **"Hey Jarvis"** (or any name you set, like "Hey Friday"). Recognised on your PC; nothing is sent anywhere.
+- Press the shortcut (default **Ctrl+Alt+J**).
+- Or use the tray icon.
+
+A translucent orb with the Apricot Digital logo pops up in the corner of the screen and pulses with
+your voice and his. Drag it wherever you like; it fades away when he's done.
+
+## Daily brief
+
+At the time you choose (default 08:30) Jarvis reads out today's meetings, what to prepare (including
+the summary of the last meeting with the same name), yesterday's summaries and today's reminders.
+Say "give me my brief" any time, or "brief me at 7:30" to change the time.
 
 ## Meeting notes
 
-When a meeting starts Jarvis offers to take notes. Press Enter and say "yes", or say "take notes"
-any time. While taking notes it only listens and saves text, so it costs no tokens. Say "stop notes"
-(or press Ctrl+C) and it offers a short summary. Later you can ask things like "what did we decide
-in the client sync?". Notes come from the microphone, so for online calls use speakers or say the key points aloud.
+When a meeting starts Jarvis asks whether to take notes (say yes), or say "take notes" any time.
+While taking notes it only listens and saves text, so it costs no tokens. Say "stop notes" or press
+the shortcut again and it offers a short summary. Later: "what did we decide in the client sync?"
+Notes come from the microphone, so for online calls use speakers or say the key points aloud.
 
-## Getting updates later
+## Calendar
 
-Whenever I've pushed changes, just double-click `update.bat`. That's it —
-pulls the latest code and updates dependencies.
+In Google Calendar: Settings > your calendar > "Secret address in iCal format". In Outlook: Settings >
+Calendar > Shared calendars > Publish, copy the ICS link. Paste it on the welcome/settings screen.
+Treat that link like a password.
 
-## Try it
+## Architecture
 
-**Test a voice speaking something:**
-```
-python scripts/tts.py "Good morning, sir. You have a meeting in twenty minutes." --voice ryan --play
-```
-Try `--voice amy`, `ryan`, `alan`, `lessac`, or `southern` to hear each one.
-
-**Test transcribing a recording:**
-```
-python scripts/stt.py path/to/some_audio.wav
-```
-
-**Full loop (mic in → text → text → speech out):**
-```
-python scripts/listen_and_respond.py --voice amy
-```
-Press ENTER, say something, press ENTER again, and Jarvis will transcribe
-it and read it back. Right now the "thinking" part is a placeholder — it
-just repeats what you said. That's the next piece we wire in: the Claude
-API call that actually decides what Jarvis should do or say.
+**Tiered brain** (cheapest first): rules -> free local model (Ollama, optional) -> Haiku -> Sonnet for
+hard or computer-control tasks. Only enabled tools are sent to the model, and old screenshots are
+dropped, to keep token use low.
 
 ## The 5 voices
 
@@ -68,24 +67,4 @@ https://github.com/OHF-voice/piper1-gpl/blob/main/VOICES.md
 
 In Google Calendar: Settings > your calendar > "Secret address in iCal format". In Outlook: Settings > Calendar > Shared calendars > Publish, copy the ICS link. Paste it into `integrations.calendar_ics_url` in `config.local.json`. Treat that link like a password.
 
-## Architecture
-
-**Tiered brain** (cheapest first):
-- **Tier 0 — local, free**: a small on-device model handles trivial stuff
-  (time, simple math, routing) and decides if a request needs to go up a tier
-- **Tier 1 — Haiku**: everyday assistant work — reminders, chat, visual
-  explainer specs, project summaries
-- **Tier 2 — Sonnet**: harder reasoning — multi-step computer control,
-  ambiguous judgment calls
-
-**One codebase, per-user config**: `config.local.json` holds each install's
-name, voice, enabled tools, and API key. Never committed to git.
-
-## What's next
-1. ✅ Voice pipeline
-2. ✅ GitHub-based update distribution
-3. ⬜ Tier 0 local model + Tier 1/2 cloud brain (Claude API), with memory
-4. ⬜ Computer control: let it click/type/see your screen for automation
-5. ⬜ Visual explainer window (small on-screen graphs/diagrams)
-6. ⬜ Calendar + project integrations: meeting reminders, project status
-   (this is the client's main need)
+**Per-install settings** live in `config.local.json` (never uploaded to GitHub).

@@ -15,7 +15,8 @@ import tools
 from memory import Memory
 
 SYSTEM = (
-    "You are Jarvis, a concise, capable personal assistant speaking aloud. "
+    "You are {assistant}, a concise, capable personal assistant from Apricot Digital, "
+    "speaking aloud (the user may also call you {aliases}). "
     "Keep replies short (1-3 sentences) unless asked for detail. "
     "Use tools when they help. Owner: {owner}.\nKnown facts:\n{facts}"
 )
@@ -43,6 +44,10 @@ class Brain:
         self.tools = tools.enabled_tools(cfg)
         self.models = cfg["models"]
         self._client = None
+
+    @property
+    def assistant_name(self) -> str:
+        return (self.cfg.get("assistant_names") or ["Jarvis"])[0]
 
     # ---------- clients ----------
     @property
@@ -92,6 +97,8 @@ class Brain:
             import computer
             computer.reset()  # each request needs fresh approval
         system = SYSTEM.format(owner=self.cfg.get("owner_name", "the user"),
+                               assistant=self.assistant_name,
+                               aliases=", ".join(self.cfg.get("assistant_names", ["Jarvis"])),
                                facts=self.mem.facts_text() or "(none yet)")
         if any(t["schema"]["name"].startswith("computer_") for t in self.tools):
             system += COMPUTER_RULES

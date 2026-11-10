@@ -1,19 +1,24 @@
 {
-  "_comment": "Jarvis fills this in for you on first run (name, voice, API key, calendar). Advanced users can edit config.local.json by hand. It is gitignored so keys and personal settings never reach GitHub.",
-
+  "_comment": "Jarvis fills this in on first run through the welcome screen. Advanced users can edit config.local.json by hand. It is gitignored so keys and personal settings never reach GitHub.",
   "onboarded": false,
   "owner_name": "",
+  "assistant_names": [
+    "Jarvis"
+  ],
   "voice": "amy",
+  "hotkey": "ctrl+alt+j",
+  "wake_word_enabled": true,
+  "briefing_enabled": true,
+  "briefing_time": "08:30",
   "meeting_reminder_minutes": 10,
-
+  "overlay_corner": "bottom-right",
+  "overlay_caption": true,
   "anthropic_api_key": "sk-ant-...",
-
   "models": {
     "tier0_local": "llama3.2:1b",
     "tier1_cloud": "claude-haiku-5-5",
     "tier2_cloud": "claude-sonnet-5"
   },
-
   "tools_enabled": {
     "reminders": true,
     "calendar": false,
@@ -21,7 +26,6 @@
     "computer_control": false,
     "visual_explainer": true
   },
-
   "integrations": {
     "calendar_ics_url": null
   }

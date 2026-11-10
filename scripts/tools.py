@@ -87,6 +87,7 @@ def enabled_tools(cfg: dict) -> list:
         import jcalendar  # noqa: F401  (registers calendar_* tools)
     if flags.get("notes"):
         import notes  # noqa: F401  (registers note tools)
+    import briefing  # noqa: F401  (registers update_settings)
     groups = {
         "reminders": ["set_reminder"],
         "visual_explainer": ["show_visual"],
@@ -94,7 +95,7 @@ def enabled_tools(cfg: dict) -> list:
         "calendar": [n for n in REGISTRY if n.startswith("calendar_")],
         "notes": ["notes_search", "note_add"],
     }
-    names = {"get_time", "remember_fact"}
+    names = {"get_time", "remember_fact", "update_settings"}
     for flag, tnames in groups.items():
         if flags.get(flag):
             names.update(tnames)

@@ -24,3 +24,6 @@ jarvis_memory.db
 
 # Local calendar events
 calendar_local.json
+
+# App log
+jarvis.log

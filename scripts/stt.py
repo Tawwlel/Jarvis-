@@ -29,6 +29,14 @@ class JarvisEars:
             download_root=str(MODEL_DIR),
         )
 
+    def transcribe_array(self, audio) -> str:
+        """Transcribe raw 16 kHz int16 samples straight from the microphone."""
+        import numpy as np
+
+        samples = audio.astype(np.float32) / 32768.0
+        segments, _ = self.model.transcribe(samples, beam_size=1, vad_filter=True)
+        return " ".join(s.text.strip() for s in segments).strip()
+
     def transcribe(self, audio_path: str) -> str:
         # vad_filter skips silence, which stops Whisper inventing words in quiet audio
         segments, _info = self.model.transcribe(audio_path, beam_size=5, vad_filter=True)

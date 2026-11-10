@@ -3,7 +3,9 @@ piper-tts
 sounddevice
 numpy
 anthropic
-pywebview
 pyautogui
 icalendar
 recurring-ical-events
+PySide6-Essentials
+pynput
+Pillow

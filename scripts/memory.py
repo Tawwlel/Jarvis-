@@ -30,6 +30,31 @@ class Memory:
         ).fetchall()
         return "\n".join(r[0] for r in rows)
 
+    def get_fact(self, key: str):
+        row = self.db.execute("SELECT value FROM facts WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def reminders_today(self) -> list[str]:
+        now = time.localtime()
+        start = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, 0, 0, 0, 0, 0, -1))
+        rows = self.db.execute(
+            "SELECT text FROM reminders WHERE done=0 AND due>=? AND due<? ORDER BY due",
+            (start, start + 86400)).fetchall()
+        return [r[0] for r in rows]
+
+    def recent_summaries(self, days: int = 2) -> list[tuple[str, str]]:
+        since = time.time() - days * 86400
+        return self.db.execute(
+            "SELECT meeting, text FROM notes WHERE kind='summary' AND ts>=? ORDER BY ts",
+            (since,)).fetchall()
+
+    def last_summary(self, title: str):
+        """Most recent summary of an earlier meeting with the same title (for prep)."""
+        row = self.db.execute(
+            "SELECT text FROM notes WHERE kind='summary' AND meeting LIKE ? ORDER BY ts DESC LIMIT 1",
+            (f"{title} (%",)).fetchone()
+        return row[0] if row else None
+
     def notes_search(self, query: str = "", days: int = 14) -> str:
         since = time.time() - days * 86400
         rows = self.db.execute(
