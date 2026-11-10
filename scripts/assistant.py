@@ -101,6 +101,9 @@ class Assistant:
         except Exception as e:
             print("[hotkey] could not register:", e)
         threading.Thread(target=self.loop, daemon=True).start()
+        if self.cfg.get("tools_enabled", {}).get("documents", True):
+            import docsearch  # build the document index in the background so the first search is quick
+            threading.Thread(target=docsearch.background_index, args=(self.cfg,), daemon=True).start()
 
     # ---------- triggers ----------
     def on_hotkey(self):

@@ -28,25 +28,54 @@ EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".docx", ".xlsx", ".t
 IMG = {".jpg", ".jpeg", ".png", ".webp"}
 SKIP = {"node_modules", "__pycache__", "venv", ".venv", "AppData", "$RECYCLE.BIN", "Jarvis Files"}
 
-TYPES = {  # canonical type -> words that mean it
-    "sales invoice": ["sales invoice", "sale invoice", "sales inv", "tax invoice", "sales bill", "sales invoices", "sale invoices", "سیلز انوائس", "فروخت کا انوائس", "سیل انوائس"],
+TYPES = {  # canonical type -> words that mean it (checked longest first)
+    "sales invoice": ["sales invoice", "sale invoice", "sales inv", "tax invoice", "sales bill", "sales invoices",
+                      "sale invoices", "سیلز انوائس", "فروخت کا انوائس", "سیل انوائس", "سیلز انوائسز"],
+    "purchase invoice": ["purchase invoice", "purchase invoices", "purchase bill", "supplier invoice",
+                         "vendor invoice", "خریداری انوائس", "پرچیز انوائس"],
+    "credit note": ["credit note", "credit notes", "credit memo", "کریڈٹ نوٹ"],
+    "delivery challan": ["delivery challan", "delivery challans", "challan", "challans", "delivery note",
+                         "gate pass", "چالان", "ڈیلیوری چالان"],
+    "purchase order": ["purchase order", "purchase orders", "po", "پرچیز آرڈر"],
+    "quotation": ["quotation", "quote", "quotes", "quotations", "estimate", "estimates", "proforma",
+                  "pro forma", "کوٹیشن", "کوٹیشنز"],
+    "receipt": ["receipt", "receipts", "payment receipt", "payment slip", "voucher", "رسید", "رسیدیں"],
     "invoice": ["invoice", "invoices", "inv", "bill", "bills", "انوائس", "انوائسز", "بل"],
-    "quotation": ["quotation", "quote", "quotes", "quotations", "estimate", "proforma", "pro forma", "کوٹیشن", "اقتباس"],
-    "receipt": ["receipt", "receipts", "payment slip", "voucher", "رسید", "رسیدیں"],
-    "purchase order": ["purchase order", "po"],
 }
+TYPE_ORDER = ["sales invoice", "purchase invoice", "credit note", "delivery challan", "purchase order",
+              "quotation", "receipt", "invoice"]
+NOT_DOCS = re.compile(r"curriculum vitae|\bresume\b|\bcv\b|bank statement|account statement|price list|"
+                      r"meeting notes|minutes of meeting|\bagenda\b", re.I)
 STOP = set("""a an the of for from to by with in on at and or me my find show get give all every any
 file files document documents doc docs pdf photo photos picture pictures image images client clients
 please can you jarvis look up lookup search send those these that this is are was were i want need
-details detail items item whatsapp computer laptop pc folder compile compiled specific
- کا کی کے سے میں پر کو کلائنٹ تمام سب دکھاؤ دکھائیں تلاش ڈھونڈو ڈھونڈیں فائل فائلیں واٹس ایپ کمپیوٹر""".split())
+details detail items item whatsapp computer laptop pc folder compile compiled specific named called
+company's customer customers rs pkr rupees amount total worth of
+we us our ours i i'm im he she they them their his her him it its which what where who whom whose when
+did do does done have has had having was be been being made make sent gave give given got received issued
+created prepared shared there here one ones some just also only same kindly pls plz thanks thank
+could would should will shall can't cant tell list bring pull open check see view know related regarding
+about against under over above below upto than more less least most new old
+ki ka ke ko se mein main mai me aur bhi sari saari sara sare saare sab dikhao dikha dikhado do mujhe mujhay
+mera meri mere hamara hamari wali wala wale hai hain tha thi thy zara yaar bhai jo jis kis kya kahan
+ اینڈ اور بھی مجھے میرا میری میرے ہمارا ہماری ہے ہیں تھا تھی جو جس کس کیا کہاں ذرا
+ کا کی کے سے میں پر کو کلائنٹ تمام سب دکھاؤ دکھائیں تلاش ڈھونڈو ڈھونڈیں فائل فائلیں واٹس ایپ کمپیوٹر والی والے""".split())
+MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+          "november", "december"]
+UR_MONTHS = ["جنوری", "فروری", "مارچ", "اپریل", "مئی", "جون", "جولائی", "اگست", "ستمبر", "اکتوبر", "نومبر", "دسمبر"]
+MON_ALIAS = {m[:3]: i for i, m in enumerate(MONTHS)} | {m: i for i, m in enumerate(MONTHS)} | \
+            {m: i for i, m in enumerate(UR_MONTHS)} | {"sept": 8}
 
 
 def _db():
     DATA.mkdir(exist_ok=True)
-    c = sqlite3.connect(DATA / "docs.db")
+    c = sqlite3.connect(DATA / "docs.db", timeout=15)
+    cols = [r[1] for r in c.execute("PRAGMA table_info(docs)").fetchall()]
+    if cols and ("doc_date" not in cols or "v2" not in cols):
+        c.execute("DROP TABLE docs")  # older index format: rebuild it
     c.execute("""CREATE TABLE IF NOT EXISTS docs(path TEXT PRIMARY KEY, source TEXT, chat TEXT, name TEXT,
-                 ext TEXT, mtime REAL, size INTEGER, text TEXT, doc_type TEXT, amount TEXT)""")
+                 ext TEXT, mtime REAL, size INTEGER, text TEXT, doc_type TEXT, amount TEXT, doc_date TEXT,
+                 v2 INTEGER)""")
     return c
 
 
@@ -102,17 +131,87 @@ def _norm(s: str) -> str:
     return re.sub(r"[_\-\.]+", " ", s.lower())
 
 
+def _has(words, hay):
+    return any(re.search(rf"(?<!\w){re.escape(w)}(?!\w)", hay) for w in words)
+
+
+DOC_NO = re.compile(r"\b(?:inv|qt|quo|po|pinv|rcpt|rec|dc|cn|so|bill)[-#/ ]?\d{2,}", re.I)
+
+
 def classify(name: str, text: str) -> str:
-    hay = _norm(name) + " " + text.lower()[:3000]
-    for typ in ("sales invoice", "quotation", "receipt", "purchase order", "invoice"):
-        if any(re.search(rf"\b{re.escape(w)}\b", hay) for w in TYPES[typ]):
-            return typ
-    return ""
+    """Type from the file name first, then the document's heading (first few lines) - never from
+    anywhere in the text, so a CV that mentions 'sales invoices' is not a sales invoice.
+    Spreadsheets/lists holding many document numbers are 'register' (an invoice list, not an invoice)."""
+    fname = _norm(Path(name).stem)
+    head = " ".join(text.lower().split()[:40])
+    if NOT_DOCS.search(fname + " " + head):
+        return ""
+    if len(set(m.lower() for m in DOC_NO.findall(text))) >= 3 or re.search(r"\b(list|register|ledger|summary)\b", fname):
+        return "register"
+    def first(hay):
+        return next((typ for typ in TYPE_ORDER if _has(TYPES[typ], hay)), "")
+    by_name, by_head = first(fname), first(head)
+    # a specific type in the file name wins; a bare "inv"/"invoice" name defers to the heading
+    if by_name and by_name != "invoice":
+        return by_name
+    return by_head or by_name
+
+
+_CUR = r"(?:pkr|rs\.?|rupees|usd|aed|sar|\$|£|€)"
+_AMT = r"(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d{3,}(?:\.\d+)?)"
 
 
 def find_amount(text: str) -> str:
-    m = re.findall(r"(?:total|amount|grand total|net)\D{0,15}([\d][\d,]*\.?\d*)", text.lower())
-    return m[-1].replace(",", "") if m else ""
+    """The document's total: a currency amount on a total/amount line first, then the
+    largest currency amount, then any 3+ digit number after a total/amount label."""
+    t = text.lower()
+    def clean(v):
+        return v.replace(",", "").removesuffix(".00").rstrip(".")
+    lines = t.splitlines()
+    for i, line in enumerate(lines):
+        if re.search(r"grand total|total amount|amount received|amount paid|amount due|total|amount|net payable", line):
+            for cand in (line, lines[i + 1] if i + 1 < len(lines) else ""):  # value may sit on the next line
+                m = re.search(rf"{_CUR}\s*{_AMT}", cand) or re.search(rf"{_AMT}\s*{_CUR}", cand)
+                if m:
+                    return clean(m.group(1))
+    cur = [clean(v) for v in re.findall(rf"{_CUR}\s*{_AMT}", t)]
+    if cur:
+        return max(cur, key=float)
+    m = re.findall(rf"(?:grand total|total|amount|net payable)\D{{0,15}}{_AMT}", t)
+    return clean(m[-1]) if m else ""
+
+
+def find_date(name: str, text: str, mtime: float) -> str:
+    """Document date as YYYY-MM-DD: from the text, then the file name (WhatsApp names carry it), then mtime."""
+    t = text[:3000].lower()
+    m = re.search(r"\b(20\d\d)[-/.](\d{1,2})[-/.](\d{1,2})\b", t)
+    if m:
+        y, mo, d = map(int, m.groups())
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return f"{y:04d}-{mo:02d}-{d:02d}"
+    m = re.search(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d\d)\b", t)  # Pakistani style DD/MM/YYYY
+    if m:
+        d, mo, y = map(int, m.groups())
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return f"{y:04d}-{mo:02d}-{d:02d}"
+    m = re.search(r"\b(\d{1,2})[\s-]+([a-z]{3,9})[,\s-]+(20\d\d)\b", t)
+    if m and m.group(2)[:3] in MON_ALIAS:
+        return f"{m.group(3)}-{MON_ALIAS[m.group(2)[:3]] + 1:02d}-{int(m.group(1)):02d}"
+    m = re.search(r"\b([a-z]{3,9})\.?\s+(\d{1,2}),?\s+(20\d\d)\b", t)  # Nov 4, 2026
+    if m and m.group(1)[:3] in MON_ALIAS:
+        return f"{m.group(3)}-{MON_ALIAS[m.group(1)[:3]] + 1:02d}-{int(m.group(2)):02d}"
+    m = re.search(r"(20\d\d)(\d\d)(\d\d)", name)
+    if m and 1 <= int(m.group(2)) <= 12:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return time.strftime("%Y-%m-%d", time.localtime(mtime))
+
+
+def _date_words(d: str) -> str:
+    try:
+        y, mo, _ = d.split("-")
+        return f" {y} {MONTHS[int(mo) - 1]} {MONTHS[int(mo) - 1][:3]} {UR_MONTHS[int(mo) - 1]} "
+    except Exception:
+        return ""
 
 
 # ---------------- indexing ----------------
@@ -148,9 +247,9 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True) -> dict:
                 continue
             text = extract_text(p)
             chat = p.relative_to(root).parts[0] if mode == "chat" and len(p.relative_to(root).parts) > 1 else ""
-            db.execute("REPLACE INTO docs VALUES(?,?,?,?,?,?,?,?,?,?)",
+            db.execute("REPLACE INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,1)",
                        (key, source, chat, p.name, p.suffix.lower(), st.st_mtime, st.st_size, text[:30000],
-                        classify(p.name, text), find_amount(text)))
+                        classify(p.name, text), find_amount(text), find_date(p.name, text, st.st_mtime)))
             added += 1
     scope = tuple(s for s, ok in (("computer", include_computer), ("whatsapp", include_whatsapp)) if ok)
     for (path,) in db.execute(f"SELECT path FROM docs WHERE source IN ({','.join('?' * len(scope))})", scope).fetchall():
@@ -163,57 +262,181 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True) -> dict:
 
 
 # ---------------- searching ----------------
+def _relative_dates(q: str) -> str:
+    """'last month' -> 'october 2026' etc., so dates match like any other word."""
+    import datetime as dt
+    today = dt.date.today()
+
+    def mon(d):
+        return f" {MONTHS[d.month - 1]} {d.year} "
+    first = today.replace(day=1)
+    rules = [(r"\b(this|current) month\b|اس مہینے", mon(today)),
+             (r"\b(last|previous) month\b|پچھلے مہینے", mon(first - dt.timedelta(days=1))),
+             (r"\b(this|current) year\b|اس سال", f" {today.year} "),
+             (r"\b(last|previous) year\b|پچھلے سال", f" {today.year - 1} ")]
+    for pat, rep in rules:
+        q = re.sub(pat, rep, q)
+    return q
+
+
+MULT = {"k": 1e3, "thousand": 1e3, "hazar": 1e3, "hazaar": 1e3, "ہزار": 1e3, "lakh": 1e5, "lac": 1e5,
+        "lakhs": 1e5, "لاکھ": 1e5, "m": 1e6, "million": 1e6, "mn": 1e6, "crore": 1e7, "کروڑ": 1e7}
+_NUM = r"(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|hazaa?r|ہزار|lakhs?|lac|لاکھ|million|mn|m|crore|کروڑ)?\b"
+AMOUNT_RULES = [
+    (rf"\b(?:above|over|more than|greater than|at least|minimum|min|exceeding|bigger than|se zyada|سے زیادہ)\s+(?:rs\.?\s*|pkr\s*)?{_NUM}", "min"),
+    (rf"\b(?:below|under|less than|at most|maximum|max|upto|up to|smaller than|se kam|سے کم)\s+(?:rs\.?\s*|pkr\s*)?{_NUM}", "max"),
+]
+
+
+def parse_filters(q: str):
+    """Pulls amount limits and 'latest/oldest N' out of the query. Returns (rest, filters)."""
+    f = {}
+    for pat, kind in AMOUNT_RULES:
+        m = re.search(pat, q)
+        if m:
+            f[kind] = float(m.group(1).replace(",", "")) * MULT.get(m.group(2) or "", 1)
+            q = q[:m.start()] + " " + q[m.end():]
+    m = re.search(r"\b(latest|newest|most recent|recent|last|oldest|first|earliest)\b(?:\s+(\d{1,2})\b)?", q)
+    if m:
+        f["order"] = "old" if m.group(1) in ("oldest", "first", "earliest") else "new"
+        f["count"] = int(m.group(2)) if m.group(2) else 1
+        q = q[:m.start()] + " " + q[m.end():]
+    m = re.search(r"\b(?:all|sab|saari|sari|tamam|تمام)\b", q)
+    if m and "order" in f and not re.search(r"\d", q[m.start():m.start() + 20]):
+        f["count"] = 0  # "all the latest ..." -> just sort
+    return q, f
+
+
 def parse(query: str):
     """Returns (doc_type, terms). doc_type '' means any type."""
-    q = " " + _norm(query) + " "
+    q, _ = parse_filters(" " + _relative_dates(_norm(query).replace("&", " and ")) + " ")
     doc_type = ""
-    for typ in ("sales invoice", "quotation", "receipt", "purchase order", "invoice"):
+    for typ in TYPE_ORDER:
         for w in sorted(TYPES[typ], key=len, reverse=True):
-            if re.search(rf"\b{re.escape(w)}\b", q):
+            if re.search(rf"(?<!\w){re.escape(w)}(?!\w)", q):
                 doc_type = doc_type or typ
-                q = re.sub(rf"\b{re.escape(w)}\b", " ", q)
-    terms = [t for t in re.findall(r"[\w']+", q.replace(",", "")) if t not in STOP]
-    return doc_type, terms
+                q = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", q)
+    q = re.sub(r"(?<=\d),(?=\d{3})", "", q)  # 284,500 -> 284500
+    # "may" is only the month when it reads like a date ("in may", "may 2026")
+    q = re.sub(r"\b(in|of|from|during)\s+may\b", r"\1 maymonth", q)
+    q = re.sub(r"\bmay(?=\s+20\d\d)", "maymonth", q)
+    q = re.sub(r"\bmay\b", " ", q).replace("maymonth", "may")
+    terms = []
+    for t in re.findall(r"[\w']+", q):
+        if t in STOP or t == "and":
+            continue
+        terms.append(MONTHS[MON_ALIAS[t]] if t in MON_ALIAS else t)
+    return doc_type, list(dict.fromkeys(terms))
 
 
-def _term_score(term: str, hay: str, words: set[str]) -> float:
-    if term in hay:
-        return 1.0
-    if len(term) >= 4 and difflib.get_close_matches(term, words, n=1, cutoff=0.82):
-        return 0.8
-    return 0.0
+# Urdu script -> rough Latin consonants, so an Urdu-written name can still find "Zahid & Sons" (backup only:
+# the assistant normally passes names in English letters already)
+_UR2LAT = {"ب": "b", "پ": "p", "ت": "t", "ٹ": "t", "ث": "s", "ج": "j", "چ": "ch", "ح": "h", "خ": "kh", "د": "d",
+           "ڈ": "d", "ذ": "z", "ر": "r", "ڑ": "r", "ز": "z", "ژ": "z", "س": "s", "ش": "sh", "ص": "s", "ض": "z",
+           "ط": "t", "ظ": "z", "ع": "", "غ": "gh", "ف": "f", "ق": "q", "ک": "k", "گ": "g", "ل": "l", "م": "m",
+           "ن": "n", "ں": "n", "و": "", "ہ": "", "ھ": "h", "ء": "", "ی": "", "ے": "", "ا": "", "آ": "", "ئ": ""}
+
+
+def _skeleton_ur(t: str) -> str:
+    return "".join(_UR2LAT.get(ch, "") for ch in t).replace("kh", "k").replace("q", "k")
+
+
+def _skeleton_lat(w: str) -> str:
+    w = re.sub(r"[aeiouyw]", "", w.lower()).replace("kh", "k").replace("q", "k").replace("c", "k")
+    return re.sub(r"h(?![s])", "", w) if len(w) > 2 else w
+
+
+TYPE_FAMILY = {"invoice": {"invoice", "sales invoice", "purchase invoice"}}
+
+
+def _hay(chat, name, text, doc_date):
+    head = _norm(f"{chat} {name}")
+    body = re.sub(r"(?<=\d),(?=\d{3})", "", _norm(text).replace("&", " and "))
+    return head, head + " " + body + _date_words(doc_date)
 
 
 def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
     qtype, terms = parse(query)
+    _, filters = parse_filters(" " + _relative_dates(_norm(query)) + " ")
     doc_type = doc_type or qtype
     db = _db()
-    rows = db.execute("SELECT path,source,chat,name,ext,mtime,text,doc_type,amount FROM docs"
+    rows = db.execute("SELECT path,source,chat,name,ext,mtime,text,doc_type,amount,doc_date FROM docs"
                       + ("" if source in ("any", "") else " WHERE source=?"),
                       () if source in ("any", "") else (source,)).fetchall()
     db.close()
+    allowed = TYPE_FAMILY.get(doc_type, {doc_type})
+    cands = []
+    for path, src, chat, name, ext, mtime, text, typ, amount, doc_date in rows:
+        if doc_type and typ not in allowed and not (typ == "register" and terms):
+            continue
+        if "min" in filters or "max" in filters:
+            try:
+                val = float(amount)
+            except (TypeError, ValueError):
+                continue
+            if val <= filters.get("min", -1) or val >= filters.get("max", float("inf")):
+                continue
+        head, hay = _hay(chat, name, text, doc_date)
+        cands.append((set(re.findall(r"[\w']+", hay)), head, hay,
+                      dict(path=path, source=src, chat=chat, name=name, type=typ, amount=amount,
+                           date=doc_date, mtime=mtime)))
+    # Words in most candidate documents (letterhead, "Bill To", "Total") don't tell documents apart
+    n = len(cands)
+    from collections import Counter
+    df = Counter(w for words, *_ in cands for w in words)
+    common = {w for w, c in df.items() if n >= 6 and c / n > 0.6}
+
+    def score_term(t, words, hay):
+        if re.search(r"\d", t):  # numbers (amounts, invoice numbers, years) must match exactly
+            return 1.0 if re.search(rf"(?<!\d){re.escape(t)}(?:\.0+)?(?!\d)", hay) else 0.0
+        if t in words:
+            return 1.0
+        if len(t) >= 3 and any(w.startswith(t) for w in words if len(w) - len(t) <= 3):
+            return 0.9  # "trad" -> "traders"
+        if re.search(r"[\u0600-\u06FF]", t):
+            sk = _skeleton_ur(t).replace("z", "s")
+
+            def close(w):
+                lw = _skeleton_lat(w).replace("z", "s")
+                if not lw or lw[0] != sk[0]:
+                    return False
+                return lw == sk if len(sk) <= 3 else difflib.SequenceMatcher(None, sk, lw).ratio() >= 0.8
+            if len(sk) >= 2 and any(close(w) for w in words if w not in common and w.isascii() and len(w) >= 3):
+                return 0.7
+            return 0.0
+        if len(t) >= 5:
+            near = difflib.get_close_matches(t, [w for w in words if w not in common and abs(len(w) - len(t)) <= 2],
+                                             n=1, cutoff=0.8)
+            if near:
+                return 0.8
+        return 0.0
+
+    def ur_common(t):  # an Urdu word that just means a letterhead/common word, e.g. "اسٹیل" -> steel
+        if not re.search(r"[\u0600-\u06FF]", t):
+            return False
+        sk = _skeleton_ur(t).replace("z", "s")
+        if len(sk) < 2:
+            return False
+        same = lambda w: w.isascii() and _skeleton_lat(w).replace("z", "s") == sk
+        # common only if it matches a common word and nothing more specific ("بلال" is Bilal, not "Bill")
+        return any(same(w) for w in common) and not any(same(w) for w in df if w not in common)
+    key_terms = [t for t in terms if t not in common and not ur_common(t)] or terms
     scored = []
-    for path, src, chat, name, ext, mtime, text, typ, amount in rows:
-        if doc_type:
-            if doc_type == "invoice" and typ not in ("invoice", "sales invoice"):
-                continue
-            if doc_type != "invoice" and typ != doc_type:
-                continue
-        head = _norm(f"{chat} {name}")
-        hay = (head + " " + _norm(text)).replace(",", "")
-        words = set(re.findall(r"[\w']+", hay))
+    for words, head, hay, item in cands:
         if terms:
-            sc = [_term_score(t, hay, words) for t in terms]
-            hits = sum(1 for s in sc if s)
-            if hits == 0:
+            sc = {t: score_term(t, words, hay) for t in terms}
+            hits = [t for t in key_terms if sc[t]]
+            if not hits:
                 continue
-            score = sum(sc) / len(terms) + 0.3 * sum(1 for t in terms if t in head) / len(terms)
-            full = hits == len(terms)
+            score = sum(sc[t] for t in key_terms) / len(key_terms) \
+                + 0.3 * sum(1 for t in key_terms if t in head) / len(key_terms)
+            full = len(hits) == len(key_terms)
         else:
             score, full = 1.0, True
-        scored.append((full, score, mtime, dict(path=path, source=src, chat=chat, name=name, type=typ,
-                                                 amount=amount, mtime=mtime)))
-    exact = sorted([s for s in scored if s[0]], key=lambda s: (-s[1], -s[2]))
+        scored.append((full, score, item["mtime"], item))
+    exact = sorted([s for s in scored if s[0]], key=lambda s: (-round(s[1], 2), s[3]["date"] or ""), reverse=False)
+    exact.sort(key=lambda s: s[3]["date"] or "", reverse=True)
+    exact.sort(key=lambda s: -round(s[1], 2))  # best match first, newest first among equals
     if terms and exact:
         mode, picked = "specific", exact
     elif terms:  # nothing matched every word: offer the nearest, clearly labelled
@@ -221,7 +444,12 @@ def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200
         picked = sorted([s for s in scored if s[1] >= 0.5], key=lambda s: (-s[1], -s[2]))[:5]
     else:
         mode, picked = "all", exact
-    return {"mode": mode, "type": doc_type, "terms": terms, "total": len(picked),
+    if "order" in filters and mode != "close":
+        picked = sorted(picked, key=lambda s: s[3]["date"] or "", reverse=filters["order"] == "new")
+        if filters.get("count"):
+            picked = picked[:filters["count"]]
+        mode = "specific" if filters.get("count") else mode
+    return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(picked),
             "items": [s[3] for s in picked[:limit]]}
 
 
@@ -248,15 +476,40 @@ def compile_folder(items: list[dict], label: str) -> Path:
 def _fmt(r: dict, n=12) -> str:
     if not r["items"]:
         return "No matching files found."
-    head = {"all": f"All {r['type'] or 'documents'}: {r['total']} found.",
+    kind = (r["type"] + "s") if r["type"] else "documents"
+    head = {"all": f"All {kind}: {r['total']} found.",
             "specific": f"{r['total']} matching file(s).",
             "close": "No exact match. These are the closest - ask the user if one of them is right."}[r["mode"]]
     lines = [f"{i}. {it['name']}" + (f" (chat: {it['chat']})" if it["chat"] else "")
              + (f" [{it['type']}]" if it["type"] else "") + (f" total {it['amount']}" if it["amount"] else "")
-             + f" - {time.strftime('%d %b %Y', time.localtime(it['mtime']))}"
+             + f" - {_pretty_date(it.get('date'), it['mtime'])}"
              for i, it in enumerate(r["items"][:n], 1)]
     more = f"\n...and {r['total'] - n} more." if r["total"] > n else ""
     return head + "\n" + "\n".join(lines) + more
+
+
+def _pretty_date(d, mtime):
+    try:
+        return time.strftime("%d %b %Y", time.strptime(d, "%Y-%m-%d"))
+    except Exception:
+        return time.strftime("%d %b %Y", time.localtime(mtime))
+
+
+_index_lock = __import__("threading").Lock()
+
+
+def background_index(cfg: dict):
+    """Builds/refreshes the index quietly so the first search is fast. Safe to call any time."""
+    if not _index_lock.acquire(blocking=False):
+        return
+    try:
+        t0 = time.time()
+        r = reindex(cfg)
+        print(f"[docs] index ready: {r['total']} files ({r['added']} new/changed) in {time.time() - t0:.0f}s")
+    except Exception as e:
+        print("[docs] indexing failed:", e)
+    finally:
+        _index_lock.release()
 
 
 def _wa_ready() -> bool:
@@ -267,14 +520,17 @@ def _wa_ready() -> bool:
       "Find documents (invoices, quotations, receipts, photos, files). source: 'computer' for files on this "
       "laptop, 'whatsapp' for files from WhatsApp chats, 'any' if the user did not say. Put the user's own words "
       "in query, in English letters (translate Urdu document words, write names in English letters) (client name, description, amount, date). If they ask for ALL of a type, query is just the type "
-      "(e.g. 'sales invoices'). Report only what the tool returns.",
+      "(e.g. 'sales invoices'). It understands dates ('march', 'last month', '2025'), 'latest'/'oldest', "
+      "amount limits ('above 2 lakh', 'under 50k'), invoice numbers and amounts. Report only what the tool "
+      "returns; if it says closest matches, ask the user which one they mean.",
       {"query": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "any"]}},
       ["query"])
 def doc_search(query, source="any"):
     cfg = CTX.get("cfg", {})
     if source == "whatsapp" and not _wa_ready():
         return "WhatsApp is not connected on this laptop yet, so I can't search it."
-    reindex(cfg, include_computer=source != "whatsapp", include_whatsapp=source != "computer")
+    with _index_lock:  # wait for a background index run instead of doing the work twice
+        reindex(cfg, include_computer=source != "whatsapp", include_whatsapp=source != "computer")
     return _fmt(search(query, source))
 
 

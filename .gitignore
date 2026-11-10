@@ -30,3 +30,9 @@ jarvis.log
 
 # Local encrypted data
 data/
+
+# Document finder test data (generated)
+tests/corpus/
+tests/data/
+tests/out/
+tests/truth.json
