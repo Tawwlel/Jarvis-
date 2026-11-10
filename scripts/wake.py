@@ -14,7 +14,10 @@ import threading
 
 from audio import Segmenter
 
-GREETINGS = {"hey", "hi", "ok", "okay", "yo", "hello"}
+GREETINGS = {"hey", "hi", "ok", "okay", "yo", "hello", "hay", "heh", "ay", "a"}
+# what small speech models often hear instead of "Jarvis"
+ALIASES = {"jarvis": ["service", "jervis", "javis", "travis", "charvis", "jarvas", "jarves", "jarvus", "garvis",
+                      "harvis", "davis", "jarviss", "jar vis", "jaris"]}
 
 
 def _words(text: str) -> list[str]:
@@ -34,7 +37,12 @@ def match_wake(text: str, names: list[str], threshold: float = 0.78):
         if not n or len(body) < len(n):
             continue
         heard = " ".join(body[:len(n)])
-        if difflib.SequenceMatcher(None, heard, " ".join(n)).ratio() >= threshold:
+        target = " ".join(n)
+        alias = greeted and heard in ALIASES.get(target, []) or (greeted and len(body) > 1 and
+                                                     " ".join(body[:2]) in ALIASES.get(target, []))
+        if alias and " ".join(body[:2]) in ALIASES.get(target, []) and heard not in ALIASES.get(target, []):
+            body = [heard] + body[2:]  # "jar vis" -> one word
+        if alias or difflib.SequenceMatcher(None, heard, target).ratio() >= threshold:
             rest = body[len(n):]
             if greeted or not rest:  # bare name only counts when it is the whole utterance
                 return " ".join(rest)
@@ -63,8 +71,9 @@ class WakeListener(threading.Thread):
             if audio is None or len(audio) < 4800:  # ignore clicks under 0.3 s
                 continue
             try:
-                text = self.ears.transcribe_array(audio)
-                cmd = match_wake(text, self.get_names())
+                names = self.get_names()
+                text = self.ears.transcribe_array(audio, prompt="Hey " + ", hey ".join(names) + ".")
+                cmd = match_wake(text, names)
                 if cmd is not None:
                     self.on_wake(cmd, audio)
             except Exception as e:

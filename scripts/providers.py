@@ -195,9 +195,13 @@ def make_stt(cfg: dict, secrets):
     from stt import JarvisEars
 
     model = slot.get("model", "base.en")
-    if mode != "en" and model.endswith(".en"):
-        model = "small"  # English-only models cannot hear Urdu
-    return JarvisEars(model, language=lang)
+    if mode == "en":
+        return JarvisEars(model if model.endswith(".en") else "base.en", language="en")
+    urdu = model if not model.endswith(".en") and model not in ("tiny", "base") else "small"
+    if mode == "ur":
+        return JarvisEars(urdu, language="ur")
+    # auto: fast "base" model handles English and spots Urdu; Urdu goes to the bigger model
+    return JarvisEars("base", language=None, urdu_model=urdu)
 
 
 # ---------------- text to speech ----------------

@@ -21,44 +21,59 @@ MODEL_DIR.mkdir(exist_ok=True)
 URDU_LIKE = {"ur", "hi", "ar", "fa", "pa", "ps", "sd"}
 
 
+def _load(size):
+    import os
+    threads = max(2, (os.cpu_count() or 4) - 1)
+    return WhisperModel(size, device="cpu", compute_type="int8", download_root=str(MODEL_DIR), cpu_threads=threads)
+
+
 class JarvisEars:
+    """
+    language None (auto): a fast model decides English vs Urdu and writes English itself;
+    only Urdu speech goes to the bigger, slower Urdu-capable model.
+    """
+
     def __init__(self, model_size: str = "base.en", device: str = "cpu", compute_type: str = "int8",
-                 language: str | None = None):
-        # language: None = detect (English/Urdu), "en" or "ur" to force one
-        import os
-
+                 language: str | None = None, urdu_model: str | None = None):
         self.language = language if not model_size.endswith(".en") else "en"
-        threads = max(2, (os.cpu_count() or 4) - 1)
-        self.model = WhisperModel(model_size, device=device, compute_type=compute_type,
-                                  download_root=str(MODEL_DIR), cpu_threads=threads)
+        self.model = _load(model_size)
+        self.urdu = _load(urdu_model) if (urdu_model and urdu_model != model_size and self.language != "en") else None
 
-    def _run(self, samples, lang):
-        return self.model.transcribe(samples, beam_size=1, vad_filter=True, language=lang,
-                                     condition_on_previous_text=False, without_timestamps=True)
+    def _run(self, model, samples, lang, prompt=None):
+        return model.transcribe(samples, beam_size=1, vad_filter=True, language=lang, initial_prompt=prompt,
+                                condition_on_previous_text=False, without_timestamps=True)
 
-    def transcribe_array(self, audio) -> str:
+    def transcribe_array(self, audio, prompt: str | None = None) -> str:
         """Transcribe raw 16 kHz int16 samples straight from the microphone."""
         import numpy as np
 
         samples = audio.astype(np.float32) / 32768.0
-        segments, info = self._run(samples, self.language)
-        if self.language is None:
-            # Decide English vs Urdu before decoding (segments are decoded lazily, so this costs nothing).
-            # Whisper often labels spoken Urdu as Hindi/Arabic/Persian: treat all of those as Urdu.
-            probs = dict(getattr(info, "all_language_probs", None) or [])
-            en = probs.get("en", 1.0 if info.language == "en" else 0.0)
-            ur = sum(probs.get(k, 0.0) for k in URDU_LIKE) or (1.0 if info.language in URDU_LIKE else 0.0)
-            if ur > en and info.language != "ur":
-                segments, _ = self._run(samples, "ur")
+        if self.language == "ur":
+            segments, _ = self._run(self.urdu or self.model, samples, "ur", prompt)
+        else:
+            segments, info = self._run(self.model, samples, self.language, prompt)
+            if self.language is None:
+                # Decide English vs Urdu before decoding (segments are decoded lazily, so this is cheap).
+                # Whisper often labels spoken Urdu as Hindi/Arabic/Persian: count all of those as Urdu.
+                probs = dict(getattr(info, "all_language_probs", None) or [])
+                en = probs.get("en", 1.0 if info.language == "en" else 0.0)
+                ur = sum(probs.get(k, 0.0) for k in URDU_LIKE) or (1.0 if info.language in URDU_LIKE else 0.0)
+                if ur > en:
+                    segments, _ = self._run(self.urdu or self.model, samples, "ur", prompt)
+                elif info.language != "en":
+                    segments, _ = self._run(self.model, samples, "en", prompt)
         return " ".join(s.text.strip() for s in segments).strip()
 
     def warm_up(self):
-        """One tiny silent run so the first real request isn't slow."""
+        """One short silent run per model so the first real request isn't slow."""
         import numpy as np
-        try:
-            list(self._run(np.zeros(16000, dtype=np.float32), self.language or "en")[0])
-        except Exception:
-            pass
+        z = np.zeros(16000, dtype=np.float32)
+        for m, lang in ((self.model, self.language or "en"), (self.urdu, "ur")):
+            if m is not None:
+                try:
+                    list(self._run(m, z, lang)[0])
+                except Exception:
+                    pass
 
     def transcribe(self, audio_path: str) -> str:
         # vad_filter skips silence, which stops Whisper inventing words in quiet audio
