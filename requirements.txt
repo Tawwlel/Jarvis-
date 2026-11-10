@@ -20,3 +20,4 @@ requests
 edge-tts
 miniaudio
 playwright
+msal

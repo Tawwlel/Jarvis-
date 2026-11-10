@@ -30,6 +30,9 @@ def apply_values(cfg: dict, v: dict, store, mem):
     """Merge the settings form into the config. Keys go to the encrypted store; blank keeps what's saved."""
     cfg.update({k: v[k] for k in ("owner_name", "assistant_names", "voice", "briefing_enabled",
                                   "briefing_time", "hotkey", "wake_word_enabled", "file_roots", "language")})
+    cfg.setdefault("email", {}).update(v.get("email", {}))
+    if v.get("email_password"):
+        store.set("email_password", v["email_password"])
     for name, val in v["keys"].items():
         if val:
             store.set(name, val)

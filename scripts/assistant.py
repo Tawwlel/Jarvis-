@@ -106,6 +106,9 @@ class Assistant:
             threading.Thread(target=docsearch.background_index, args=(self.cfg,), daemon=True).start()
             from whatsapp_agent import WhatsAppAgent  # separate worker: keeps WhatsApp documents read and ready
             WhatsAppAgent(self.cfg, lambda t: self.bridge.chat("assistant", t)).start()
+        if self.cfg.get("tools_enabled", {}).get("email", True):
+            from email_agent import EmailAgent  # daily email digest at the chosen time
+            EmailAgent(self.cfg, lambda t: self.submit_text(t, speak=False)).start()
 
     # ---------- triggers ----------
     def on_hotkey(self):

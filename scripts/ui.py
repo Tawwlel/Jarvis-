@@ -336,6 +336,38 @@ class SettingsWindow(QWidget):
         f.addRow(self.wake)
         tabs.addTab(asst, "Assistant")
 
+        # ---------------- Email ----------------
+        em = QWidget()
+        f = QFormLayout(em)
+        f.setSpacing(9)
+        ecfg = cfg.get("email", {})
+        self.e_addr = QLineEdit(ecfg.get("address", ""))
+        self.e_addr.setPlaceholderText("you@gmail.com / you@company.com")
+        self.e_pw = self._secret("App password (from your email account's security page)", store and store.get("email_password"))
+        self.e_server = QLineEdit(ecfg.get("server", ""))
+        self.e_server.setPlaceholderText("Leave empty for Gmail, Yahoo, iCloud, Zoho")
+        self.e_hours = _combo([("Last 12 hours", "12"), ("Last 24 hours", "24"), ("Last 48 hours", "48"),
+                               ("Last 7 days", "168")], str(int(ecfg.get("window_hours", 24))))
+        self.e_on = QCheckBox("Daily email digest at")
+        self.e_on.setChecked(ecfg.get("enabled", True))
+        self.e_time = QTimeEdit()
+        self.e_time.setDisplayFormat("HH:mm")
+        eh, emn = map(int, ecfg.get("digest_time", "09:00").split(":"))
+        self.e_time.setTime(QTime(eh, emn))
+        erow = QHBoxLayout()
+        erow.addWidget(self.e_on)
+        erow.addWidget(self.e_time)
+        erow.addStretch()
+        f.addRow(_section("Email"))
+        f.addRow(_note("Jarvis reads new mail (never sends or deletes), sums it up with ideas, questions and tips, "
+                       "and offers to put meetings and deadlines in your calendar or reminders."))
+        f.addRow("Email address", self.e_addr)
+        f.addRow("App password", self.e_pw)
+        f.addRow("Mail server", self.e_server)
+        f.addRow("Each digest covers", self.e_hours)
+        f.addRow(erow)
+        tabs.addTab(em, "Email")
+
         # ---------------- Keys & models ----------------
         km = QWidget()
         f = QFormLayout(km)
@@ -464,6 +496,10 @@ class SettingsWindow(QWidget):
             "local_only_terms": _csv(self.priv_local.text()),
             "calendar_url": self.cal.text().strip(), "computer_control": self.computer.isChecked(),
             "notes": self.notes.isChecked(), "file_roots": _csv(self.roots.text()),
+            "email": {"address": self.e_addr.text().strip(), "server": self.e_server.text().strip(),
+                      "window_hours": float(self.e_hours.currentData()), "enabled": self.e_on.isChecked(),
+                      "digest_time": self.e_time.time().toString("HH:mm")},
+            "email_password": self.e_pw.text().strip(),
         }
 
     def _save(self):

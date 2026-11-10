@@ -50,10 +50,10 @@ HARD_HINTS = re.compile(
 ACTION = re.compile(
     r"\b(find|search|look ?up|list|open|show me|get me|send|delete|remove|move|copy|rename|collect|remind|"
     r"schedule|book|add (a |an )?(task|todo|to-do|event|meeting|note)|go (to|through|into)|take notes|"
-    r"what'?s on my|do i have)\b|"
+    r"what'?s on my|do i have|e-?mails?|inbox|digest|mails?)\b|"
     r"\bmy (files?|folders?|documents?|docs|invoices?|quotations?|quotes|receipts?|pdfs?|photos?|calendar|"
     r"meetings?|reminders?|tasks|todos?|notes|emails?|whatsapp|computer|laptop|screen|desktop|downloads)\b|"
-    r"فائل|انوائس|کوٹیشن|رسید|یاد دہانی|میٹنگ|کھولو|ڈھونڈ|دکھاؤ|تلاش", re.I)
+    r"ای میل|میل|فائل|انوائس|کوٹیشن|رسید|یاد دہانی|میٹنگ|کھولو|ڈھونڈ|دکھاؤ|تلاش", re.I)
 LOCAL_RULES = ("\nYou are running offline on this PC with NO access to files, folders, documents, the internet, "
                "calendar, reminders or the computer. Never pretend to look anything up or list files. If asked for "
                "that, say you need the online model (an API key in Settings) for it. Keep answers to 1-3 sentences.")

@@ -95,9 +95,12 @@ def enabled_tools(cfg: dict) -> list:
         import docsearch  # noqa: F401  (registers doc_* tools)
         import whatsapp_reader  # noqa: F401  (registers whatsapp_* tools)
         import whatsapp_agent  # noqa: F401  (registers the WhatsApp document agent's tools)
+    if flags.get("email", True):
+        import email_agent  # noqa: F401  (registers email_* and add_to_calendar)
     import briefing  # noqa: F401  (registers update_settings)
     groups = {
         "reminders": ["set_reminder"],
+        "email": [n for n in REGISTRY if n.startswith("email_") or n == "add_to_calendar"],
         "visual_explainer": ["show_visual"],
         "computer_control": [n for n in REGISTRY if n.startswith("computer_")],
         "calendar": [n for n in REGISTRY if n.startswith("calendar_")],
@@ -107,7 +110,7 @@ def enabled_tools(cfg: dict) -> list:
         "documents": [n for n in REGISTRY if n.startswith("doc_") or n.startswith("whatsapp_")],
     }
     names = {"get_time", "remember_fact", "update_settings"}
-    default_on = {"todos", "files", "documents"}
+    default_on = {"todos", "files", "documents", "email", "reminders"}
     for flag, tnames in groups.items():
         if flags.get(flag, flag in default_on):
             names.update(tnames)
