@@ -1,4 +1,6 @@
-faster-whisper==1.0.3
-piper-tts==1.2.0
-sounddevice==0.4.6
+faster-whisper
+piper-tts
+sounddevice
 numpy
+anthropic
+pywebview

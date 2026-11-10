@@ -21,6 +21,8 @@ import wave
 import numpy as np
 import sounddevice as sd
 
+from brain import Brain
+from config import load_config
 from stt import JarvisEars
 from tts import JarvisVoice
 
@@ -67,14 +69,17 @@ def record_until_enter(out_path: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--voice", default="amy")
+    parser.add_argument("--voice", default=None, help="overrides config voice")
     parser.add_argument("--whisper-model", default="base.en")
     args = parser.parse_args()
 
+    cfg = load_config()
+    voice = args.voice or cfg.get("voice", "amy")
+    brain = Brain(cfg)
     ears = JarvisEars(model_size=args.whisper_model)
     mouth = JarvisVoice()
 
-    print(f"Jarvis ready. Voice = {args.voice}. Ctrl+C to quit.\n")
+    print(f"Jarvis ready. Voice = {voice}. Ctrl+C to quit.\n")
 
     while True:
         try:
@@ -84,15 +89,15 @@ def main():
             text = ears.transcribe(record_path)
             print(f"You said: {text}")
 
-            # --- Placeholder for the brain ---
-            # This is where you'll call the Claude API with `text` as input,
-            # plus the assistant's tools (calendar, project tracker, computer
-            # control, etc.) and get back a reply to speak.
-            reply = f"You said: {text}. The thinking part isn't wired up yet."
-            # ----------------------------------
+            for due in brain.mem.due_reminders():
+                mouth.speak(f"Reminder: {due}", voice_name=voice, play=True)
+
+            if not text.strip():
+                continue
+            reply = brain.respond(text)
 
             print(f"Jarvis: {reply}")
-            mouth.speak(reply, voice_name=args.voice, play=True)
+            mouth.speak(reply, voice_name=voice, play=True)
 
         except KeyboardInterrupt:
             print("\nGoodbye.")

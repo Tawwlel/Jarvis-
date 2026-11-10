@@ -18,3 +18,6 @@ secrets.json
 
 # Per-install config (each machine/client keeps its own)
 config.local.json
+
+# Local memory (personal data, never commit)
+jarvis_memory.db
