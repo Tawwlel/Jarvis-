@@ -508,13 +508,15 @@ class ChatWindow(QWidget):
             self.submitted.emit(t, self.speak.isChecked())
 
 
-def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_selftest=None):
+def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_selftest=None, on_speedtest=None):
     tray = QSystemTrayIcon(QIcon(logo_path), app)
     tray.setToolTip(f"{name} by Apricot Digital")
     menu = QMenu()
     items = [(f"Talk to {name}", on_talk), ("Open chat", on_chat)]
     if on_selftest:
         items.append(("Run document test", on_selftest))
+    if on_speedtest:
+        items.append(("Run speed test", on_speedtest))
     items += [("Settings", on_settings), ("Quit", on_quit)]
     for label, fn in items:
         act = QAction(label, menu)

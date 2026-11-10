@@ -116,3 +116,71 @@ def run(cfg: dict, say):
         time.sleep(0.15)  # so it's readable as it scrolls
     say(f"RESULT: {passed} of {len(all_cases)} searches returned exactly the right files.")
     return passed, len(all_cases)
+
+
+def speed_test(assistant, say):
+    """Times each step of a conversation on this laptop, using the models Jarvis already has loaded."""
+    import wave
+
+    import numpy as np
+    cfg = assistant.cfg
+    say("SPEED TEST\nTimes each step on this laptop. Jarvis makes its own test speech, so please stay quiet for a moment.")
+    rows = []
+
+    def step(label, fn, good, ok):
+        t0 = time.time()
+        try:
+            out = fn()
+        except Exception as e:
+            say(f"{label}: failed ({e})")
+            return None
+        dt = time.time() - t0
+        verdict = "FAST" if dt <= good else ("OK" if dt <= ok else "SLOW")
+        rows.append((label, dt, verdict))
+        say(f"{verdict:4}  {label}: {dt:.1f}s")
+        return out
+
+    # 1. voice: make a spoken sentence (this also becomes the listening test audio)
+    sentence = "Hey Jarvis, find all sales invoices for Khan Traders."
+    path = step("Voice: speaking one sentence", lambda: assistant.mouth.base.speak(sentence, voice_name=cfg.get("voice", "amy"))
+                if hasattr(assistant.mouth, "base") else assistant.mouth.speak(sentence, voice_name=cfg.get("voice", "amy")),
+                1.5, 3.0)
+    # 2. listening: turn that speech back into text
+    if path:
+        with wave.open(path, "rb") as wf:
+            rate, raw = wf.getframerate(), wf.readframes(wf.getnframes())
+        pcm = np.frombuffer(raw, dtype=np.int16)
+        if rate != 16000:
+            idx = np.arange(0, len(pcm), rate / 16000).astype(int)
+            pcm = pcm[idx[idx < len(pcm)]]
+        secs = len(pcm) / 16000
+        text = step(f"Listening: {secs:.1f}s of speech to text", lambda: assistant.ears.transcribe_array(pcm), 2.5, 5.0)
+        if text:
+            say(f"      heard: \"{text}\"")
+    # 3. documents: a real search on the sample set
+    d = _isolated_docsearch()
+    corpus = TESTS / "corpus"
+    if (corpus / "pc").exists():
+        shutil.rmtree(d.DATA, ignore_errors=True)
+        tcfg = {"file_roots": [str(corpus / "pc")]}
+        step("Documents: reading 76 sample files (one time only)", lambda: d.reindex(tcfg), 15, 40)
+        step("Documents: one search", lambda: d.search("sales invoices for Zahid and Sons"), 0.3, 1.0)
+    # 4. the small local model
+    b = assistant.brain
+    if b.local_ok():
+        step("Local model: first answer (loading)", lambda: b.local.chat("Be brief.", [{"role": "user", "content": "Say hello."}], 40), 4, 10)
+        step("Local model: next answer", lambda: b.local.chat("Be brief.", [{"role": "user", "content": "Name one colour."}], 40), 2.5, 6)
+    else:
+        say("Local model: not running (start Ollama to test it)")
+    # 5. online model
+    if b.llm_ready():
+        step("Online model (Claude): one answer", lambda: b.ask("Be brief.", "Say hello in five words.", 30), 2.5, 5)
+    else:
+        say("Online model: no API key yet, so not tested.")
+    # summary
+    total = sum(dt for l, dt, v in rows if l.startswith(("Voice", "Listening")))
+    ask_dt = next((dt for l, dt, v in rows if l.startswith(("Online", "Local model: next"))), 0)
+    say(f"SUMMARY\nA typical voice request = listening + thinking + speaking = about "
+        f"{rows[1][1] if len(rows) > 1 else 0:.1f}s + {ask_dt:.1f}s + {rows[0][1] if rows else 0:.1f}s "
+        f"= {((rows[1][1] if len(rows) > 1 else 0) + ask_dt + (rows[0][1] if rows else 0)):.1f}s.\n"
+        f"Slow steps: {', '.join(l for l, dt, v in rows if v == 'SLOW') or 'none'}.")

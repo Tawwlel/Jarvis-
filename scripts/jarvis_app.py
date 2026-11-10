@@ -160,6 +160,22 @@ def main():
                 bridge.chat("assistant", f"The test stopped: {e}")
         threading.Thread(target=work, daemon=True).start()
 
+    def run_speedtest():
+        open_chat()
+        if not keep["assistant"]:
+            bridge.chat("assistant", "I'm still starting up. Try again in a moment.")
+            return
+
+        def work():
+            try:
+                import selftest
+                selftest.speed_test(keep["assistant"], lambda t: bridge.chat("assistant", t))
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                bridge.chat("assistant", f"The speed test stopped: {e}")
+        threading.Thread(target=work, daemon=True).start()
+
     def start_assistant(welcome: str | None = None):
         """Loads models on a background thread so the window never freezes (first run downloads them)."""
         def work():
@@ -182,7 +198,7 @@ def main():
         if QSystemTrayIcon.isSystemTrayAvailable() and keep["tray"] is None:
             ask = lambda: keep["assistant"] and keep["assistant"].talk()
             keep["tray"] = make_tray(app, LOGO, name(), ask, open_chat, lambda: open_settings(False), app.quit,
-                                     on_selftest=run_selftest)
+                                     on_selftest=run_selftest, on_speedtest=run_speedtest)
         open_chat()
         threading.Thread(target=work, daemon=True).start()
 
