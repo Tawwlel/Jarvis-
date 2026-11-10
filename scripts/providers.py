@@ -166,8 +166,8 @@ def make_llm(cfg: dict, secrets):
 class OpenAIWhisper:
     name = "openai_whisper"
 
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1"):
-        self.api_key, self.base_url = api_key, base_url.rstrip("/")
+    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", language: str | None = None):
+        self.api_key, self.base_url, self.language = api_key, base_url.rstrip("/"), language
 
     def transcribe_array(self, audio) -> str:
         import requests
@@ -181,18 +181,23 @@ class OpenAIWhisper:
         r = requests.post(f"{self.base_url}/audio/transcriptions", timeout=60,
                           headers={"Authorization": f"Bearer {self.api_key}"},
                           files={"file": ("speech.wav", buf.getvalue(), "audio/wav")},
-                          data={"model": "whisper-1"})
+                          data={"model": "whisper-1", **({"language": self.language} if self.language else {})})
         r.raise_for_status()
         return r.json().get("text", "").strip()
 
 
 def make_stt(cfg: dict, secrets):
     slot = cfg.get("slots", {}).get("stt", {})
+    mode = cfg.get("language", "auto")
+    lang = None if mode == "auto" else mode
     if slot.get("provider") == "openai_whisper":
-        return OpenAIWhisper(secrets.get("openai") or "")
+        return OpenAIWhisper(secrets.get("openai") or "", language=lang)
     from stt import JarvisEars
 
-    return JarvisEars(slot.get("model", "base.en"))
+    model = slot.get("model", "base.en")
+    if mode != "en" and model.endswith(".en"):
+        model = "small"  # English-only models cannot hear Urdu
+    return JarvisEars(model, language=lang)
 
 
 # ---------------- text to speech ----------------
@@ -220,10 +225,71 @@ class ElevenLabsVoice:
         return path
 
 
+class EdgeVoice:
+    """Urdu (and other) neural voices through Microsoft Edge's free text-to-speech. Needs internet."""
+    name = "edge"
+
+    def __init__(self, voice: str = "ur-PK-AsadNeural"):
+        self.voice = voice
+
+    def speak(self, text, voice_name=None, out_path=None, play=False) -> str:
+        import asyncio
+
+        import edge_tts
+        import miniaudio
+        from tts import AUDIO_DIR
+
+        async def run():
+            data = b""
+            async for chunk in edge_tts.Communicate(text, voice_name or self.voice).stream():
+                if chunk["type"] == "audio":
+                    data += chunk["data"]
+            return data
+
+        mp3 = asyncio.run(run())
+        if not mp3:
+            raise RuntimeError("no audio from the Urdu voice")
+        pcm = miniaudio.decode(mp3, output_format=miniaudio.SampleFormat.SIGNED16, nchannels=1, sample_rate=24000)
+        path = out_path or str(AUDIO_DIR / "out_urdu.wav")
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(pcm.samples.tobytes())
+        return path
+
+
+class BilingualVoice:
+    """Speaks Urdu text with the Urdu voice and everything else with the chosen English voice."""
+
+    def __init__(self, base, urdu_voice: str, urdu_fallback=None):
+        self.base, self.urdu, self.fallback = base, EdgeVoice(urdu_voice), urdu_fallback
+
+    def speak(self, text, voice_name="amy", out_path=None, play=False) -> str:
+        from lang import is_urdu
+
+        if is_urdu(text):
+            try:
+                return self.urdu.speak(text, out_path=out_path)
+            except Exception as e:
+                print("[urdu voice]", e)
+                if self.fallback:
+                    return self.fallback.speak(text, out_path=out_path)
+                raise
+        return self.base.speak(text, voice_name=voice_name, out_path=out_path, play=play)
+
+
 def make_tts(cfg: dict, secrets):
     slot = cfg.get("slots", {}).get("tts", {})
-    if slot.get("provider") == "elevenlabs" and secrets.get("elevenlabs") and slot.get("elevenlabs_voice_id"):
-        return ElevenLabsVoice(secrets.get("elevenlabs"), slot["elevenlabs_voice_id"])
+    eleven = None
+    if secrets.get("elevenlabs") and slot.get("elevenlabs_voice_id"):
+        eleven = ElevenLabsVoice(secrets.get("elevenlabs"), slot["elevenlabs_voice_id"])
+    if slot.get("provider") == "elevenlabs" and eleven:
+        base = eleven  # ElevenLabs multilingual handles Urdu too
+        return base
     from tts import JarvisVoice
 
-    return JarvisVoice()
+    base = JarvisVoice()
+    if cfg.get("language", "auto") == "en":
+        return base
+    return BilingualVoice(base, slot.get("urdu_voice") or "ur-PK-AsadNeural", urdu_fallback=eleven)

@@ -12,8 +12,8 @@ import time
 
 from tools import CTX, tool
 
-YES = re.compile(r"\b(yes|yeah|yep|yup|sure|please|go ahead|ok|okay|do it)\b", re.I)
-NO = re.compile(r"\b(no|nope|nah|not now|skip|don'?t)\b", re.I)
+YES = re.compile(r"\b(yes|yeah|yep|yup|sure|please|go ahead|ok|okay|do it|ہاں|جی|جی ہاں|ٹھیک ہے|بالکل|کریں|کر دو)\b", re.I)
+NO = re.compile(r"\b(no|nope|nah|not now|skip|don'?t|نہیں|نہ|رہنے دو|ابھی نہیں)\b", re.I)
 START = re.compile(r"\b(take|start|begin)\b.*\bnotes?\b|\bnote (this|that) down\b", re.I)
 STOP = re.compile(r"\b(stop|end|finish)\b.*\bnotes?\b|\bmeeting (is )?(over|ended|finished)\b", re.I)
 NOISE = {"", "you", "thank you", "thanks", "thanks for watching", "bye", "okay", "uh", "um"}

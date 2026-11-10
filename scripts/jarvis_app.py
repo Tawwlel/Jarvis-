@@ -28,7 +28,7 @@ LOGO = str(ROOT / "assets" / "logo.png")
 def apply_values(cfg: dict, v: dict, store, mem):
     """Merge the settings form into the config. Keys go to the encrypted store; blank keeps what's saved."""
     cfg.update({k: v[k] for k in ("owner_name", "assistant_names", "voice", "briefing_enabled",
-                                  "briefing_time", "hotkey", "wake_word_enabled", "file_roots")})
+                                  "briefing_time", "hotkey", "wake_word_enabled", "file_roots", "language")})
     for name, val in v["keys"].items():
         if val:
             store.set(name, val)
@@ -40,7 +40,8 @@ def apply_values(cfg: dict, v: dict, store, mem):
     slots = cfg.setdefault("slots", {})
     slots.setdefault("llm", {}).update(provider=v["llm_provider"], base_url=v["llm_base_url"])
     slots.setdefault("stt", {}).update(provider=v["stt_provider"], model=v["stt_model"])
-    slots.setdefault("tts", {}).update(provider=v["tts_provider"], elevenlabs_voice_id=v["elevenlabs_voice_id"])
+    slots.setdefault("tts", {}).update(provider=v["tts_provider"], elevenlabs_voice_id=v["elevenlabs_voice_id"],
+                                       urdu_voice=v["urdu_voice"])
     models = cfg.setdefault("models", {})
     if v["model_fast"]:
         models["tier1_cloud"] = v["model_fast"]

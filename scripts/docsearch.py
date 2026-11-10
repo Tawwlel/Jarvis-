@@ -29,16 +29,17 @@ IMG = {".jpg", ".jpeg", ".png", ".webp"}
 SKIP = {"node_modules", "__pycache__", "venv", ".venv", "AppData", "$RECYCLE.BIN", "Jarvis Files"}
 
 TYPES = {  # canonical type -> words that mean it
-    "sales invoice": ["sales invoice", "sale invoice", "sales inv", "tax invoice", "sales bill", "sales invoices", "sale invoices"],
-    "invoice": ["invoice", "invoices", "inv", "bill", "bills"],
-    "quotation": ["quotation", "quote", "quotes", "quotations", "estimate", "proforma", "pro forma"],
-    "receipt": ["receipt", "receipts", "payment slip", "voucher"],
+    "sales invoice": ["sales invoice", "sale invoice", "sales inv", "tax invoice", "sales bill", "sales invoices", "sale invoices", "سیلز انوائس", "فروخت کا انوائس", "سیل انوائس"],
+    "invoice": ["invoice", "invoices", "inv", "bill", "bills", "انوائس", "انوائسز", "بل"],
+    "quotation": ["quotation", "quote", "quotes", "quotations", "estimate", "proforma", "pro forma", "کوٹیشن", "اقتباس"],
+    "receipt": ["receipt", "receipts", "payment slip", "voucher", "رسید", "رسیدیں"],
     "purchase order": ["purchase order", "po"],
 }
 STOP = set("""a an the of for from to by with in on at and or me my find show get give all every any
 file files document documents doc docs pdf photo photos picture pictures image images client clients
 please can you jarvis look up lookup search send those these that this is are was were i want need
-details detail items item whatsapp computer laptop pc folder compile compiled specific""".split())
+details detail items item whatsapp computer laptop pc folder compile compiled specific
+ کا کی کے سے میں پر کو کلائنٹ تمام سب دکھاؤ دکھائیں تلاش ڈھونڈو ڈھونڈیں فائل فائلیں واٹس ایپ کمپیوٹر""".split())
 
 
 def _db():
@@ -265,7 +266,7 @@ def _wa_ready() -> bool:
 @tool("doc_search",
       "Find documents (invoices, quotations, receipts, photos, files). source: 'computer' for files on this "
       "laptop, 'whatsapp' for files from WhatsApp chats, 'any' if the user did not say. Put the user's own words "
-      "in query (client name, description, amount, date). If they ask for ALL of a type, query is just the type "
+      "in query, in English letters (translate Urdu document words, write names in English letters) (client name, description, amount, date). If they ask for ALL of a type, query is just the type "
       "(e.g. 'sales invoices'). Report only what the tool returns.",
       {"query": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "any"]}},
       ["query"])

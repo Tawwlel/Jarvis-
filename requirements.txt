@@ -17,3 +17,5 @@ send2trash
 keyring
 cryptography
 requests
+edge-tts
+miniaudio

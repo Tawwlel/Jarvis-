@@ -11,6 +11,7 @@
   "briefing_enabled": true,
   "briefing_time": "08:30",
   "meeting_reminder_minutes": 10,
+  "language": "auto",
   "overlay_corner": "bottom-right",
   "overlay_caption": true,
   "models": {
@@ -41,7 +42,8 @@
     },
     "tts": {
       "provider": "piper",
-      "elevenlabs_voice_id": ""
+      "elevenlabs_voice_id": "",
+      "urdu_voice": "ur-PK-AsadNeural"
     }
   },
   "privacy": {

@@ -194,6 +194,9 @@ PROVIDERS = {
     "stt": [("Local Whisper (free, private)", "local_whisper"), ("OpenAI Whisper (online)", "openai_whisper")],
     "tts": [("Piper voices (free, private)", "piper"), ("ElevenLabs (online)", "elevenlabs")],
 }
+LANGS = [("Auto - Urdu or English, whichever I speak", "auto"), ("English only", "en"), ("Urdu only", "ur")]
+URDU_VOICES = [("Asad (male)", "ur-PK-AsadNeural"), ("Uzma (female)", "ur-PK-UzmaNeural"),
+               ("Salman (male, India)", "ur-IN-SalmanNeural"), ("Gul (female, India)", "ur-IN-GulNeural")]
 WHISPER_SIZES = ["base.en", "small", "medium", "large-v3"]
 
 
@@ -304,6 +307,8 @@ class SettingsWindow(QWidget):
         vrow = QHBoxLayout()
         vrow.addWidget(self.voice, 1)
         vrow.addWidget(pv)
+        self.lang = _combo(LANGS, cfg.get("language", "auto"))
+        self.urdu_voice = _combo(URDU_VOICES, cfg.get("slots", {}).get("tts", {}).get("urdu_voice", "ur-PK-AsadNeural"))
         self.brief_on = QCheckBox("Daily brief at")
         self.brief_on.setChecked(cfg.get("briefing_enabled", True))
         self.brief_time = QTimeEdit()
@@ -320,6 +325,10 @@ class SettingsWindow(QWidget):
         f.addRow(_section("Assistant"))
         f.addRow("Call me", self.names)
         f.addRow("Voice", vrow)
+        f.addRow("Language", self.lang)
+        f.addRow("Urdu voice", self.urdu_voice)
+        f.addRow(_note("Urdu needs the Whisper model 'small' or bigger for listening (set automatically) and "
+                       "internet for the Urdu voice."))
         f.addRow(_section("Routine"))
         f.addRow("", brow)
         f.addRow("Shortcut", self.hotkey)
@@ -444,6 +453,7 @@ class SettingsWindow(QWidget):
             "model_fast": self.m_fast.text().strip(), "model_strong": self.m_strong.text().strip(),
             "model_local": self.m_local.text().strip(),
             "stt_provider": self.stt_p.currentData(), "stt_model": self.stt_m.currentData(),
+            "language": self.lang.currentData(), "urdu_voice": self.urdu_voice.currentData(),
             "tts_provider": self.tts_p.currentData(), "elevenlabs_voice_id": self.eleven_voice.text().strip(),
             "keys": {"anthropic": self.k_anthropic.text().strip(), "openai": self.k_openai.text().strip(),
                      "elevenlabs": self.k_eleven.text().strip()},

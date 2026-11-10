@@ -145,6 +145,8 @@ class Brain:
                                assistant=self.assistant_name,
                                aliases=", ".join(self.cfg.get("assistant_names", ["Jarvis"])),
                                facts=self.mem.facts_text() or "(none yet)")
+        from lang import instruction
+        system += instruction(self.cfg.get("language", "auto"))
         if any(t["schema"]["name"].startswith("computer_") for t in self.tools):
             system += COMPUTER_RULES
         red = self._redactor()

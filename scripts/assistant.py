@@ -158,7 +158,7 @@ class Assistant:
                 return
             if self.notes.state == "active":
                 self.say(self.notes_mode())
-            expecting = self.notes.state in ("offered", "summary_offered") or reply.rstrip().endswith("?")
+            expecting = self.notes.state in ("offered", "summary_offered") or reply.rstrip().endswith(("?", "؟"))
             if not expecting:
                 return
             text = self.hear()

@@ -19,7 +19,10 @@ MODEL_DIR.mkdir(exist_ok=True)
 
 
 class JarvisEars:
-    def __init__(self, model_size: str = "base.en", device: str = "cpu", compute_type: str = "int8"):
+    def __init__(self, model_size: str = "base.en", device: str = "cpu", compute_type: str = "int8",
+                 language: str | None = None):
+        # language: None = detect (English/Urdu), "en" or "ur" to force one
+        self.language = language if not model_size.endswith(".en") else "en"
         # "base.en" is a good budget default: fast on CPU, accurate enough for commands.
         # Options (speed vs accuracy): tiny.en < base.en < small.en < medium.en
         self.model = WhisperModel(
@@ -34,8 +37,14 @@ class JarvisEars:
         import numpy as np
 
         samples = audio.astype(np.float32) / 32768.0
-        segments, _ = self.model.transcribe(samples, beam_size=1, vad_filter=True)
-        return " ".join(s.text.strip() for s in segments).strip()
+        lang = self.language
+        segments, info = self.model.transcribe(samples, beam_size=1, vad_filter=True, language=lang)
+        text = " ".join(s.text.strip() for s in segments).strip()
+        # Whisper often labels spoken Urdu as Hindi/Arabic/Persian: redo it as Urdu so we get Urdu script
+        if lang is None and getattr(info, "language", "en") in ("hi", "ar", "fa", "pa", "ps", "sd", "ur"):
+            segments, _ = self.model.transcribe(samples, beam_size=1, vad_filter=True, language="ur")
+            text = " ".join(s.text.strip() for s in segments).strip()
+        return text
 
     def transcribe(self, audio_path: str) -> str:
         # vad_filter skips silence, which stops Whisper inventing words in quiet audio
