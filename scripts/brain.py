@@ -71,7 +71,10 @@ class Brain:
         self.tools = tools.enabled_tools(cfg)
         self.models = cfg["models"]
         self.local = LocalLLM(self.models.get("tier0_local"))  # light: quick, simple answers
-        self.local_heavy = LocalLLM(self.models.get("tier0_local_heavy"))  # heavier: better offline answers
+        from sysinfo import HEAVY_MIN_RAM, ram_gb
+        heavy = self.models.get("tier0_local_heavy") if ram_gb() >= HEAVY_MIN_RAM else None
+        # heavier: better offline answers; unloads after 2 minutes so it doesn't hold memory
+        self.local_heavy = LocalLLM(heavy, keep_alive="2m")
         self._llm = None
         self._local_ok = (0.0, False)
         self._heavy_ok = (0.0, False)

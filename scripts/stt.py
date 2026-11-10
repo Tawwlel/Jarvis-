@@ -37,7 +37,17 @@ class JarvisEars:
                  language: str | None = None, urdu_model: str | None = None):
         self.language = language if not model_size.endswith(".en") else "en"
         self.model = _load(model_size)
-        self.urdu = _load(urdu_model) if (urdu_model and urdu_model != model_size and self.language != "en") else None
+        self._urdu_name = urdu_model if (urdu_model and urdu_model != model_size and self.language != "en") else None
+        self._urdu = None
+        if self.language == "ur" and self._urdu_name:
+            self._urdu = _load(self._urdu_name)
+
+    @property
+    def urdu(self):
+        """The bigger Urdu model loads the first time Urdu is heard, so English-only use stays light."""
+        if self._urdu is None and self._urdu_name:
+            self._urdu = _load(self._urdu_name)
+        return self._urdu
 
     def _run(self, model, samples, lang, prompt=None):
         return model.transcribe(samples, beam_size=1, vad_filter=True, language=lang, initial_prompt=prompt,
@@ -68,7 +78,7 @@ class JarvisEars:
         """One short silent run per model so the first real request isn't slow."""
         import numpy as np
         z = np.zeros(16000, dtype=np.float32)
-        for m, lang in ((self.model, self.language or "en"), (self.urdu, "ur")):
+        for m, lang in ((self.model, self.language or "en"), (self._urdu, "ur")):
             if m is not None:
                 try:
                     list(self._run(m, z, lang)[0])

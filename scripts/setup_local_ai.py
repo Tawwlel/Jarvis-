@@ -109,7 +109,8 @@ def main() -> int:
         print("Ollama is installed but not running. Open 'Ollama' from the Start menu, then run update again.")
         return 1
     ram = ram_gb()
-    wanted = [LIGHT] + ([HEAVY] if ram >= 7.5 else [])
+    from sysinfo import HEAVY_MIN_RAM
+    wanted = [LIGHT] + ([HEAVY] if ram >= HEAVY_MIN_RAM else [])
     if HEAVY not in wanted:
         print(f"This PC has {ram:.0f} GB of memory, so only the light model is installed.")
     got = []

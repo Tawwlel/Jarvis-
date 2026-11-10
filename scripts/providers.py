@@ -125,8 +125,8 @@ class LocalLLM:
     """Ollama on this PC. Free and private; small models, so no tool use."""
     name = "local"
 
-    def __init__(self, model: str | None, host: str = "http://localhost:11434"):
-        self.model, self.host = model, host
+    def __init__(self, model: str | None, host: str = "http://localhost:11434", keep_alive: str = "30m"):
+        self.model, self.host, self.keep_alive = model, host, keep_alive
 
     def available(self) -> bool:
         """True when Ollama is running AND this model has been downloaded."""
@@ -149,7 +149,7 @@ class LocalLLM:
             import requests
 
             requests.post(self.host + "/api/generate", timeout=120,
-                          json={"model": self.model, "keep_alive": "30m"})
+                          json={"model": self.model, "keep_alive": self.keep_alive})
         except Exception:
             pass
 
@@ -161,7 +161,7 @@ class LocalLLM:
                 {"role": m["role"], "content": m.get("content") or m.get("text", "")}
                 for m in messages if m["role"] in ("user", "assistant")]
             r = requests.post(self.host + "/api/chat", timeout=120, json={
-                "model": self.model, "messages": msgs, "stream": False, "keep_alive": "30m",
+                "model": self.model, "messages": msgs, "stream": False, "keep_alive": self.keep_alive,
                 "options": {"num_predict": max_tokens}})
             r.raise_for_status()
             return r.json()["message"]["content"].strip()
