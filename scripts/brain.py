@@ -179,7 +179,8 @@ class Brain:
                 reply = self.local.chat(system, self._history())
             if reply is None:
                 if not self.llm_ready():
-                    reply = NO_KEY
+                    # no online key: let the local model answer what it can (no tools)
+                    reply = (self.local.chat(system, self._history()) if self.local_ok() else None) or NO_KEY
                 else:
                     model = self.models["tier2_cloud"] if tier == "sonnet" else self.models["tier1_cloud"]
                     try:
