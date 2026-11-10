@@ -72,15 +72,21 @@ def check_and_update(log=print) -> str:
                 first = Path(rel).parts[0]
                 if first in KEEP or first.startswith(".") or first == "tests":
                     continue
-                dest = ROOT / rel
+                dest = (ROOT / rel).resolve()
+                if ROOT.resolve() not in dest.parents:  # never write outside the app folder
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(info))
         new_req = (ROOT / "requirements.txt").read_text() if (ROOT / "requirements.txt").exists() else ""
         if new_req != old_req:
             log("[update] installing new libraries...")
             flags = 0x08000000 if sys.platform == "win32" else 0  # no console window
-            subprocess.run([sys.executable.replace("pythonw", "python"), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt"), "--quiet",
-                            "--disable-pip-version-check"], creationflags=flags, timeout=900)
+            r = subprocess.run([sys.executable.replace("pythonw", "python"), "-m", "pip", "install", "-r",
+                                str(ROOT / "requirements.txt"), "--quiet", "--disable-pip-version-check"],
+                               creationflags=flags, timeout=900)
+            if getattr(r, "returncode", 0) != 0:
+                log("[update] libraries failed to install; will retry next check.")
+                return "updated"  # code is in place; VERSION not written so the libraries are retried
         VERSION_FILE.write_text(new)
         log("[update] installed.")
         return "updated"

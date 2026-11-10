@@ -18,6 +18,7 @@ from tools import CTX, tool
 DATA = Path(__file__).parent.parent / "data"
 WA_DIR = DATA / "whatsapp"
 PROFILE = DATA / "wa_profile"
+WA_URL = "https://web.whatsapp.com/"
 DOC_EXT = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".docx", ".xlsx", ".csv", ".txt")
 
 SEL = {
@@ -31,6 +32,12 @@ SEL = {
 
 def _safe(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", name).strip(" .")[:60] or "chat"
+
+
+def _safe_file(name: str) -> str:
+    """A file name only: no folders, no '..', nothing Windows rejects."""
+    name = Path(str(name).replace("\\", "/")).name
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", name).strip(" .")[:150] or f"file_{int(time.time())}"
 
 
 def _launch(p, headless: bool):
@@ -47,7 +54,7 @@ def link(timeout=300) -> str:
     with sync_playwright() as p:
         ctx = _launch(p, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto("https://web.whatsapp.com/")
+        page.goto(WA_URL)
         try:
             page.wait_for_selector(SEL["logged_in"], timeout=timeout * 1000)
             time.sleep(5)  # let the profile save its session
@@ -72,6 +79,9 @@ def _chat_names(page, limit):
 def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
     out = WA_DIR / _safe(chat)
     out.mkdir(parents=True, exist_ok=True)
+    seen_file = out / ".seen"  # message ids already saved, so nothing downloads twice
+    done = set(seen_file.read_text().split()) if seen_file.exists() else set()
+    seen |= done
     got = 0
     rows = page.query_selector_all(SEL["messages"])
     for m in reversed(rows):  # newest first
@@ -87,7 +97,9 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
         if not (is_doc or is_img):
             continue
         seen.add(mid)
+        label = _safe_file(label)
         if is_doc and (out / label).exists():
+            done.add(mid)
             continue
         try:
             m.scroll_into_view_if_needed()
@@ -95,9 +107,10 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
                 btn = m.query_selector("[data-icon='audio-download'], [data-icon='download'], [data-icon^='document']")
                 (btn or title or m).click()
             d = dl.value
-            name = d.suggested_filename or label or f"photo_{int(time.time())}.jpg"
+            name = _safe_file(d.suggested_filename or label or f"photo_{int(time.time())}.jpg")
             d.save_as(str(out / name))
             got += 1
+            done.add(mid)
         except Exception:
             if is_img:  # photos: open the viewer and save it
                 try:
@@ -106,17 +119,31 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
                     with page.expect_download(timeout=15000) as dl:
                         page.click("[data-icon='download'], [aria-label='Download']")
                     d = dl.value
-                    d.save_as(str(out / (d.suggested_filename or f"photo_{int(time.time())}.jpg")))
+                    d.save_as(str(out / _safe_file(d.suggested_filename or f"photo_{int(time.time())}.jpg")))
                     got += 1
+                    done.add(mid)
                 except Exception:
                     pass
                 finally:
                     page.keyboard.press("Escape")
+    seen_file.write_text("\n".join(sorted(done)))
     return got
+
+
+_busy = __import__("threading").Lock()
 
 
 def sync(chats=None, per_chat=40, chat_limit=15) -> dict:
     """Saves recent documents/photos of the given chats (or the most recent ones) into data/whatsapp."""
+    if not _busy.acquire(blocking=False):  # one browser per profile at a time
+        return {"busy": 0}
+    try:
+        return _sync(chats, per_chat, chat_limit)
+    finally:
+        _busy.release()
+
+
+def _sync(chats, per_chat, chat_limit) -> dict:
     from playwright.sync_api import sync_playwright
     if not PROFILE.exists():
         return {"error": "not linked"}
@@ -125,7 +152,7 @@ def sync(chats=None, per_chat=40, chat_limit=15) -> dict:
     with sync_playwright() as p:
         ctx = _launch(p, headless=True)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto("https://web.whatsapp.com/")
+        page.goto(WA_URL)
         try:
             page.wait_for_selector(SEL["logged_in"], timeout=60000)
         except Exception:
@@ -135,7 +162,7 @@ def sync(chats=None, per_chat=40, chat_limit=15) -> dict:
         names = chats or _chat_names(page, chat_limit)
         for name in names:
             try:
-                page.click(f"#pane-side span[title='{name}']", timeout=5000)
+                page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=5000)
                 page.wait_for_timeout(2500)
                 for _ in range(3):  # load a bit more history
                     page.mouse.wheel(0, -4000)
@@ -169,6 +196,8 @@ def whatsapp_sync(chats=""):
         return "WhatsApp support is not installed yet. Run update.bat once, then try again."
     names = [c.strip() for c in chats.split(",") if c.strip()] or None
     r = sync(names)
+    if "busy" in r:
+        return "WhatsApp is already being checked in the background; try the search in a minute."
     if r.get("error"):
         return "WhatsApp is not linked yet. Say 'link WhatsApp' first."
     total = sum(v for v in r.values() if isinstance(v, int))
