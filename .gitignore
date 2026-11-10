@@ -32,7 +32,7 @@ jarvis.log
 data/
 
 # Document finder test data (generated)
-tests/corpus/
 tests/data/
 tests/out/
-tests/truth.json
+tests/selftest_index/
+tests/selftest_out/
