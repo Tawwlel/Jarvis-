@@ -45,6 +45,20 @@ NO_KEY = "I can't reach my language model yet. Add your API key in Settings, und
 HARD_HINTS = re.compile(
     r"\b(analy[sz]e|plan|compare|research|debug|write (a|the) (report|code|email)|"
     r"step by step|on my (screen|computer)|click|open the|automate)\b", re.I)
+# Requests that need tools (files, documents, reminders, calendar, the computer). Small local models
+# can't use tools and would make answers up, so these always need the online model.
+ACTION = re.compile(
+    r"\b(find|search|look ?up|list|open|show me|get me|send|delete|remove|move|copy|rename|collect|remind|"
+    r"schedule|book|add (a |an )?(task|todo|to-do|event|meeting|note)|go (to|through|into)|take notes|"
+    r"what'?s on my|do i have)\b|"
+    r"\bmy (files?|folders?|documents?|docs|invoices?|quotations?|quotes|receipts?|pdfs?|photos?|calendar|"
+    r"meetings?|reminders?|tasks|todos?|notes|emails?|whatsapp|computer|laptop|screen|desktop|downloads)\b|"
+    r"فائل|انوائس|کوٹیشن|رسید|یاد دہانی|میٹنگ|کھولو|ڈھونڈ|دکھاؤ|تلاش", re.I)
+LOCAL_RULES = ("\nYou are running offline on this PC with NO access to files, folders, documents, the internet, "
+               "calendar, reminders or the computer. Never pretend to look anything up or list files. If asked for "
+               "that, say you need the online model (an API key in Settings) for it. Keep answers to 1-3 sentences.")
+NEEDS_ONLINE = ("I need my online model for that, because it means using your files or apps. Add your API key in "
+                "Settings, under Keys and models. Offline I can only chat and answer simple questions.")
 TRIVIAL = re.compile(r"^(hi|hello|hey|thanks|thank you|ok|okay|bye|good (morning|night))\b", re.I)
 
 
@@ -95,14 +109,14 @@ class Brain:
     def local_ok(self) -> bool:
         return self._light_ok() or self.heavy_ok()
 
-    def local_answer(self, system: str, heavy: bool = False) -> str | None:
+    def local_answer(self, system: str, heavy: bool = False, max_tokens: int = 160) -> str | None:
         """Answer on this PC. heavy=True prefers the bigger model; falls back to whichever exists."""
         order = [(self.local_heavy, self.heavy_ok), (self.local, self._light_ok)]
         if not heavy:
             order.reverse()
         for model, ok in order:
             if ok():
-                reply = model.chat(system, self._history())
+                reply = model.chat(system + LOCAL_RULES, self._history(), max_tokens=max_tokens)
                 if reply:
                     return reply
         return None
@@ -146,18 +160,9 @@ class Brain:
         if HARD_HINTS.search(text):
             return "sonnet" if re.search(
                 r"screen|computer|click|automate|open|browser|window|analy|research|debug", text, re.I) else "haiku"
-        if self.local_ok():
-            judge = self.local if self._light_ok() else self.local_heavy
-            verdict = judge.chat("", [{"role": "user", "content": (
-                "Classify the request. Reply with ONE word: SIMPLE (greeting/chitchat), "
-                "NORMAL (needs tools, facts, or short help), HARD (multi-step reasoning, "
-                f"planning, analysis).\nRequest: {text}")}], max_tokens=5)
-            if verdict:
-                v = verdict.upper()
-                if "SIMPLE" in v:
-                    return "local"
-                if "HARD" in v:
-                    return "sonnet"
+        # short small talk goes to the free local model; no extra model call to decide (that was slow)
+        if self.local_ok() and len(text.split()) <= 6 and not ACTION.search(text):
+            return "local"
         return "haiku"
 
     # ---------- instant answers (free, no model) ----------
@@ -205,7 +210,10 @@ class Brain:
             if reply is None:
                 if not self.llm_ready():
                     # no online key: let the local model answer what it can (no tools)
-                    reply = self.local_answer(system, heavy=tier != "local") or NO_KEY
+                    if ACTION.search(text):
+                        reply = NEEDS_ONLINE
+                    else:  # light model by default (fast); heavy only for clearly harder questions
+                        reply = self.local_answer(system, heavy=bool(HARD_HINTS.search(text))) or NO_KEY
                 else:
                     model = self.models["tier2_cloud"] if tier == "sonnet" else self.models["tier1_cloud"]
                     try:
