@@ -20,6 +20,14 @@ SYSTEM = (
     "Use tools when they help. Owner: {owner}.\nKnown facts:\n{facts}"
 )
 
+COMPUTER_RULES = (
+    "\nComputer control rules: take a screenshot before clicking and after each important "
+    "step. Never enter passwords, card or bank details, or personal IDs - stop and ask the "
+    "user to do that part. Do not buy, send, post, delete or accept terms unless the user "
+    "clearly asked for exactly that. If you hit a captcha or something unexpected, stop and "
+    "tell the user. Prefer the fewest steps."
+)
+
 # Cheap pre-filter: no model call at all.
 HARD_HINTS = re.compile(
     r"\b(analy[sz]e|plan|compare|research|debug|write (a|the) (report|code|email)|"
@@ -66,7 +74,7 @@ class Brain:
         if TRIVIAL.match(text.strip()) and len(text) < 40:
             return "local"
         if HARD_HINTS.search(text):
-            return "sonnet" if re.search(r"screen|computer|click|automate|analy|research|debug", text, re.I) else "haiku"
+            return "sonnet" if re.search(r"screen|computer|click|automate|open|browser|window|analy|research|debug", text, re.I) else "haiku"
         verdict = self._local(
             "Classify the request. Reply with ONE word: SIMPLE (greeting/chitchat), "
             "NORMAL (needs tools, facts, or short help), HARD (multi-step reasoning, "
@@ -80,8 +88,13 @@ class Brain:
     # ---------- main entry ----------
     def respond(self, text: str) -> str:
         self.mem.add_message("user", text)
+        if self.cfg.get("tools_enabled", {}).get("computer_control"):
+            import computer
+            computer.reset()  # each request needs fresh approval
         system = SYSTEM.format(owner=self.cfg.get("owner_name", "the user"),
                                facts=self.mem.facts_text() or "(none yet)")
+        if any(t["schema"]["name"].startswith("computer_") for t in self.tools):
+            system += COMPUTER_RULES
         tier = self.route(text)
         reply = None
         if tier == "local":
@@ -97,7 +110,10 @@ class Brain:
         while messages and messages[0]["role"] != "user":
             messages.pop(0)  # API requires the first message to be from the user
         schemas = [t["schema"] for t in self.tools]
-        for _ in range(6):  # tool loop cap keeps cost bounded
+        # Computer control needs many steps; everything else stays tightly capped.
+        max_steps = 30 if model == self.models["tier2_cloud"] else 6
+        for _ in range(max_steps):
+            self._prune_images(messages)
             resp = self.client.messages.create(
                 model=model, max_tokens=500, system=system,
                 messages=messages, tools=schemas)
@@ -105,7 +121,29 @@ class Brain:
                 return "".join(b.text for b in resp.content if b.type == "text").strip()
             messages.append({"role": "assistant", "content": resp.content})
             results = [{"type": "tool_result", "tool_use_id": b.id,
-                        "content": tools.run_tool(b.name, b.input)}
+                        "content": self._result_content(tools.run_tool(b.name, b.input))}
                        for b in resp.content if b.type == "tool_use"]
             messages.append({"role": "user", "content": results})
-        return "I got stuck in a loop on that one."
+        return "I ran out of steps on that one. Tell me if you want me to continue."
+
+    @staticmethod
+    def _result_content(r):
+        if isinstance(r, dict) and "image_b64" in r:
+            return [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": r["image_b64"]}},
+                    {"type": "text", "text": r.get("note", "Screenshot")}]
+        return r
+
+    @staticmethod
+    def _prune_images(messages, keep: int = 2):
+        """Old screenshots are the biggest token cost; keep only the newest few."""
+        seen = 0
+        for m in reversed(messages):
+            if m["role"] != "user" or not isinstance(m["content"], list):
+                continue
+            for block in m["content"]:
+                content = block.get("content") if isinstance(block, dict) else None
+                if isinstance(content, list) and any(c.get("type") == "image" for c in content):
+                    seen += 1
+                    if seen > keep:
+                        block["content"] = "(older screenshot removed to save tokens)"

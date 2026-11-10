@@ -11,14 +11,16 @@ Legend: ✅ built · 🟡 partly built · ⬜ planned
 - ✅ Memory: chat history, long-term facts, reminders (local SQLite)
 - ✅ Per-install config, so one codebase serves you and every client
 - ✅ One-click `setup.bat` and `update.bat`; updates ship through GitHub
-- 🟡 Reminders (spoken when due; checked after each interaction — background timer is next)
+- ✅ Reminders spoken on time by a background timer
+- ✅ Calendar: reads any Google/Outlook/Apple calendar via its private .ics link, adds local events, warns before meetings
+- ✅ Computer control (screenshot, click, type, keys, scroll, open app) with per-task approval, extra approval for risky keys/apps, 40-action cap, screen-corner abort, and old screenshots dropped to save tokens
+- ✅ One app for everyone: features switched on/off per person in config.local.json
 - 🟡 Visual explainer window: bar/line charts and definition cards (needs testing on Windows)
 
 ## Planned
+- ⬜ Write events back to Google/Outlook (needs OAuth)
+- ⬜ Meeting prep notes pulled before each call
 - ⬜ Wake word ("Hey Jarvis") instead of push-to-talk
-- ⬜ Background reminder timer
-- ⬜ Computer control (screenshots + mouse/keyboard) with approval prompts for risky actions
-- ⬜ Calendar integration (Google or Outlook) and meeting reminders with prep
 - ⬜ Project tracker rollup ("what's going on right now")
 - ⬜ Email/message triage
 - ⬜ Meeting notes → tasks

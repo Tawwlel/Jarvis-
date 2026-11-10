@@ -4,3 +4,6 @@ sounddevice
 numpy
 anthropic
 pywebview
+pyautogui
+icalendar
+recurring-ical-events

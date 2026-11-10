@@ -61,6 +61,10 @@ You can add more any time from the full Piper voice list:
 https://github.com/OHF-voice/piper1-gpl/blob/main/VOICES.md
 (just add the voice ID to `download_voices.py` and `VOICE_FILES` in `tts.py`)
 
+## Setting up the calendar
+
+In Google Calendar: Settings > your calendar > "Secret address in iCal format". In Outlook: Settings > Calendar > Shared calendars > Publish, copy the ICS link. Paste it into `integrations.calendar_ics_url` in `config.local.json`. Treat that link like a password.
+
 ## Architecture
 
 **Tiered brain** (cheapest first):

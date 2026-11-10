@@ -8,7 +8,8 @@ DB = Path(__file__).parent.parent / "jarvis_memory.db"
 
 class Memory:
     def __init__(self):
-        self.db = sqlite3.connect(DB)
+        # Shared with the background scheduler thread, so allow cross-thread use.
+        self.db = sqlite3.connect(DB, check_same_thread=False)
         self.db.executescript(
             """
             CREATE TABLE IF NOT EXISTS messages(ts REAL, role TEXT, content TEXT);

@@ -21,8 +21,12 @@ import wave
 import numpy as np
 import sounddevice as sd
 
+import threading
+
+import tools
 from brain import Brain
 from config import load_config
+from scheduler import Scheduler
 from stt import JarvisEars
 from tts import JarvisVoice
 
@@ -79,6 +83,20 @@ def main():
     ears = JarvisEars(model_size=args.whisper_model)
     mouth = JarvisVoice()
 
+    speak_lock = threading.Lock()
+
+    def say(msg: str):
+        print(f"Jarvis: {msg}")
+        with speak_lock:
+            mouth.speak(msg, voice_name=voice, play=True)
+
+    def confirm(question: str) -> bool:
+        say(question)
+        return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+
+    tools.CTX["say"], tools.CTX["confirm"] = say, confirm
+    Scheduler(cfg, brain.mem, say, cfg.get("tools_enabled", {}).get("calendar", False)).start()
+
     print(f"Jarvis ready. Voice = {voice}. Ctrl+C to quit.\n")
 
     while True:
@@ -89,15 +107,9 @@ def main():
             text = ears.transcribe(record_path)
             print(f"You said: {text}")
 
-            for due in brain.mem.due_reminders():
-                mouth.speak(f"Reminder: {due}", voice_name=voice, play=True)
-
             if not text.strip():
                 continue
-            reply = brain.respond(text)
-
-            print(f"Jarvis: {reply}")
-            mouth.speak(reply, voice_name=voice, play=True)
+            say(brain.respond(text))
 
         except KeyboardInterrupt:
             print("\nGoodbye.")

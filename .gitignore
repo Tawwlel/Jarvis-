@@ -21,3 +21,6 @@ config.local.json
 
 # Local memory (personal data, never commit)
 jarvis_memory.db
+
+# Local calendar events
+calendar_local.json

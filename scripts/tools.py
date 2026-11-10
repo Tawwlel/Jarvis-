@@ -78,18 +78,30 @@ def show_visual(kind, title, labels=None, values=None, body=None):
 
 
 def enabled_tools(cfg: dict) -> list:
+    """Each feature flag in config.local.json switches a group of tools on or off."""
     flags = cfg.get("tools_enabled", {})
-    always = {"get_time", "remember_fact"}
-    mapping = {"reminders": "set_reminder", "visual_explainer": "show_visual"}
-    names = set(always)
-    for flag, tname in mapping.items():
+    CTX["cfg"] = cfg
+    if flags.get("computer_control"):
+        import computer  # noqa: F401  (registers computer_* tools)
+    if flags.get("calendar"):
+        import jcalendar  # noqa: F401  (registers calendar_* tools)
+    groups = {
+        "reminders": ["set_reminder"],
+        "visual_explainer": ["show_visual"],
+        "computer_control": [n for n in REGISTRY if n.startswith("computer_")],
+        "calendar": [n for n in REGISTRY if n.startswith("calendar_")],
+    }
+    names = {"get_time", "remember_fact"}
+    for flag, tnames in groups.items():
         if flags.get(flag):
-            names.add(tname)
-    return [REGISTRY[n] for n in names if n in REGISTRY]
+            names.update(tnames)
+    return [REGISTRY[n] for n in sorted(names) if n in REGISTRY]
 
 
-def run_tool(name: str, args: dict) -> str:
+def run_tool(name: str, args: dict):
+    """Returns a string, or a dict with image_b64 for screenshots."""
     try:
-        return str(REGISTRY[name]["fn"](**args))
+        result = REGISTRY[name]["fn"](**args)
+        return result if isinstance(result, dict) else str(result)
     except Exception as e:  # report to the model, don't crash the loop
         return f"Tool error: {e}"

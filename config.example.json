@@ -1,8 +1,9 @@
 {
-  "_comment": "Copy this file to config.local.json and fill in your own values. One codebase, different config per person (you, a client, etc). config.local.json is gitignored so your API key and personal settings never get pushed to GitHub.",
+  "_comment": "Copy to config.local.json and fill in. One app for everyone: switch features on/off per person here. config.local.json is gitignored so keys and personal settings never reach GitHub.",
 
   "owner_name": "Your Name",
   "voice": "amy",
+  "meeting_reminder_minutes": 10,
 
   "anthropic_api_key": "sk-ant-...",
 
@@ -14,15 +15,12 @@
 
   "tools_enabled": {
     "reminders": true,
-    "calendar": false,
-    "project_tracker": false,
+    "calendar": true,
     "computer_control": true,
-    "visual_explainer": true,
-    "web_search": false
+    "visual_explainer": true
   },
 
   "integrations": {
-    "calendar_provider": null,
-    "project_tracker_provider": null
+    "calendar_ics_url": null
   }
 }
