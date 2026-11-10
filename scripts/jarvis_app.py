@@ -106,6 +106,13 @@ def main():
         probe.write(b"show")
         probe.waitForBytesWritten(500)
         print("[app] Jarvis is already running; showing it instead.")
+        from PySide6.QtWidgets import QMessageBox
+        box = QMessageBox(QMessageBox.Information, "Jarvis by Apricot Digital",
+                          "Jarvis is already running.\n\nLook for the red logo near the clock (click the ^ arrow "
+                          "if it's hidden). I've opened its chat window for you.")
+        box.setStyleSheet("QWidget{background:#0a0d14;color:#e6ebf5;font-family:'Segoe UI'}"
+                          "QPushButton{background:#ff3030;color:white;border:none;border-radius:6px;padding:7px 18px}")
+        box.exec()
         return
     QLocalServer.removeServer(INSTANCE)
     server = QLocalServer()
@@ -206,6 +213,9 @@ def main():
         if conn:
             conn.readAll()
         open_chat()
+        keep["chat"].activateWindow()
+        if keep["tray"]:
+            keep["tray"].showMessage("Jarvis", "Jarvis is already running.", QSystemTrayIcon.Information, 3000)
 
     server.newConnection.connect(on_second_copy)
 
