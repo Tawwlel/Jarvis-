@@ -135,9 +135,26 @@ class Brain:
                     return "sonnet"
         return "haiku"
 
+    # ---------- instant answers (free, no model) ----------
+    def _quick(self, text: str) -> str | None:
+        import datetime as dt
+        t = text.lower()
+        if len(t) > 80:
+            return None
+        now = dt.datetime.now()
+        if re.search(r"\bwhat(?:'s| is)? (?:the )?time\b|\btime (?:is it|right now)\b|وقت کیا|کتنے بجے", t):
+            return now.strftime("It's %I:%M %p.").replace(" 0", " ")
+        if re.search(r"\bwhat(?:'s| is)? (?:the |today'?s )?date\b|\bwhat day is (?:it|today)\b|آج کیا تاریخ|آج کون سا دن", t):
+            return now.strftime("Today is %A, %d %B %Y.")
+        return None
+
     # ---------- main entry ----------
     def respond(self, text: str) -> str:
         self.mem.add_message("user", text)
+        quick = self._quick(text)
+        if quick:
+            self.mem.add_message("assistant", quick)
+            return quick
         if self.cfg.get("tools_enabled", {}).get("computer_control"):
             import computer
             computer.reset()  # each request needs fresh approval
