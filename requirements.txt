@@ -4,6 +4,10 @@ sounddevice
 numpy
 anthropic
 pyautogui
+pypdf
+pypdfium2
+python-docx
+openpyxl
 icalendar
 recurring-ical-events
 PySide6-Essentials

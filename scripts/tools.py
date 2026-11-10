@@ -91,6 +91,8 @@ def enabled_tools(cfg: dict) -> list:
         import todos  # noqa: F401  (registers todo_* tools)
     if flags.get("files", True):
         import files  # noqa: F401  (registers file_* tools)
+    if flags.get("documents", True):
+        import docsearch  # noqa: F401  (registers doc_* tools)
     import briefing  # noqa: F401  (registers update_settings)
     groups = {
         "reminders": ["set_reminder"],
@@ -100,9 +102,10 @@ def enabled_tools(cfg: dict) -> list:
         "notes": ["notes_search", "note_add"],
         "todos": [n for n in REGISTRY if n.startswith("todo_")],
         "files": [n for n in REGISTRY if n.startswith("file_")],
+        "documents": [n for n in REGISTRY if n.startswith("doc_")],
     }
     names = {"get_time", "remember_fact", "update_settings"}
-    default_on = {"todos", "files"}
+    default_on = {"todos", "files", "documents"}
     for flag, tnames in groups.items():
         if flags.get(flag, flag in default_on):
             names.update(tnames)

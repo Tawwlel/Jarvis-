@@ -48,3 +48,10 @@ Legend: ✅ built · 🟡 partly built · ⬜ planned
 - ✅ Files: find, read, edit, move, open in allowed folders; delete always asks and goes to the Recycle Bin
 - ✅ Privacy router: private details are replaced with placeholders before going online; local-only topics never leave the PC
 - ✅ Text chat window (tray > Open chat); spoken conversations appear there too
+
+## Documents (client request)
+- ✅ Find invoices, quotations, receipts, PDFs and photos on the computer or in WhatsApp chats (the user says which)
+- ✅ "All sales invoices" lists everything; a name, description or amount lists only matches; near misses are labelled "closest"
+- ✅ Reads text inside PDFs and photos of invoices (OCR); "Collect" copies the results into one folder and opens it
+- ⏳ WhatsApp reader (read-only linked device on the laptop) fills data/whatsapp/<chat>/
+- ⏳ iPhone app that talks to the laptop
