@@ -18,7 +18,7 @@ DEFAULTS = {
     "language": "auto",  # auto | en | ur
     "overlay_corner": "bottom-right",
     "overlay_caption": True,
-    "models": {"tier0_local": None, "tier0_local_heavy": None, "tier1_cloud": "claude-haiku-5-5", "tier2_cloud": "claude-sonnet-5"},
+    "models": {"tier0_local": None, "tier0_local_heavy": None, "tier1_cloud": "claude-haiku-5-5", "tier2_cloud": "claude-sonnet-5-5"},
     "slots": {
         "llm": {"provider": "anthropic", "base_url": "https://api.openai.com/v1"},
         "stt": {"provider": "local_whisper", "model": "base.en"},
@@ -54,5 +54,8 @@ def load_config() -> dict:
         if p.exists():
             raw = json.loads(p.read_text(encoding="utf-8"))
             raw.pop("_comment", None)
-            return _merge(cfg, raw)
+            merged = _merge(cfg, raw)
+            if merged["models"].get("tier2_cloud") == "claude-sonnet-5":  # older installs used a wrong id
+                merged["models"]["tier2_cloud"] = "claude-sonnet-5-5"
+            return merged
     return cfg
