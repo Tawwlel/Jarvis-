@@ -1,0 +1,20 @@
+# Voice models - large, downloaded locally per machine, not stored in git
+voices/*.onnx
+voices/*.onnx.json
+
+# Whisper model cache
+whisper_model/
+
+# Recorded/generated audio
+audio/*.wav
+
+# Python
+__pycache__/
+*.pyc
+
+# Local secrets - never commit API keys
+.env
+secrets.json
+
+# Per-install config (each machine/client keeps its own)
+config.local.json

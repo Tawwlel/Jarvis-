@@ -1,0 +1,28 @@
+{
+  "_comment": "Copy this file to config.local.json and fill in your own values. One codebase, different config per person (you, a client, etc). config.local.json is gitignored so your API key and personal settings never get pushed to GitHub.",
+
+  "owner_name": "Your Name",
+  "voice": "amy",
+
+  "anthropic_api_key": "sk-ant-...",
+
+  "models": {
+    "tier0_local": "llama3.2:1b",
+    "tier1_cloud": "claude-haiku-5-5",
+    "tier2_cloud": "claude-sonnet-5"
+  },
+
+  "tools_enabled": {
+    "reminders": true,
+    "calendar": false,
+    "project_tracker": false,
+    "computer_control": true,
+    "visual_explainer": true,
+    "web_search": false
+  },
+
+  "integrations": {
+    "calendar_provider": null,
+    "project_tracker_provider": null
+  }
+}
