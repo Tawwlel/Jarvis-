@@ -9,3 +9,7 @@ recurring-ical-events
 PySide6-Essentials
 pynput
 Pillow
+send2trash
+keyring
+cryptography
+requests

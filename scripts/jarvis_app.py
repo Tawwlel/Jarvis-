@@ -6,6 +6,7 @@ Jarvis by Apricot Digital - the app.
 First run shows a welcome screen; after that Jarvis lives in the tray and pops up
 in the corner of the screen when called (shortcut key, "Hey Jarvis", or tray).
 """
+import json
 import subprocess
 import sys
 import threading
@@ -16,30 +17,74 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 import audio
 from config import ROOT, load_config, save_config
 from memory import Memory
-from tts import JarvisVoice
-from ui import Bridge, Overlay, SettingsWindow, make_tray
+from providers import make_tts
+from secrets_store import default_store
+from ui import Bridge, ChatWindow, Overlay, SettingsWindow, make_tray
 
 VOICES = ["amy", "ryan", "alan", "lessac", "southern"]
 LOGO = str(ROOT / "assets" / "logo.png")
 
 
-def apply_values(cfg: dict, v: dict):
-    """Merge the settings form into the config (blank secret fields keep what's saved)."""
+def apply_values(cfg: dict, v: dict, store, mem):
+    """Merge the settings form into the config. Keys go to the encrypted store; blank keeps what's saved."""
     cfg.update({k: v[k] for k in ("owner_name", "assistant_names", "voice", "briefing_enabled",
-                                  "briefing_time", "hotkey", "wake_word_enabled")})
-    if v["api_key"]:
-        cfg["anthropic_api_key"] = v["api_key"]
+                                  "briefing_time", "hotkey", "wake_word_enabled", "file_roots")})
+    for name, val in v["keys"].items():
+        if val:
+            store.set(name, val)
     if v["calendar_url"]:
         cfg.setdefault("integrations", {})["calendar_ics_url"] = v["calendar_url"]
     flags = cfg.setdefault("tools_enabled", {})
     flags["calendar"] = bool(cfg.get("integrations", {}).get("calendar_ics_url"))
     flags["computer_control"], flags["notes"] = v["computer_control"], v["notes"]
+    slots = cfg.setdefault("slots", {})
+    slots.setdefault("llm", {}).update(provider=v["llm_provider"], base_url=v["llm_base_url"])
+    slots.setdefault("stt", {}).update(provider=v["stt_provider"], model=v["stt_model"])
+    slots.setdefault("tts", {}).update(provider=v["tts_provider"], elevenlabs_voice_id=v["elevenlabs_voice_id"])
+    models = cfg.setdefault("models", {})
+    if v["model_fast"]:
+        models["tier1_cloud"] = v["model_fast"]
+    if v["model_strong"]:
+        models["tier2_cloud"] = v["model_strong"]
+    models["tier0_local"] = v["model_local"] or None
+    priv = cfg.setdefault("privacy", {})
+    priv.update(mode=v["privacy_mode"], private_terms=v["private_terms"], local_only_terms=v["local_only_terms"])
     cfg["onboarded"] = True
-    mem = Memory()
-    if v["owner_name"]:
-        mem.remember("user_name", v["owner_name"])
-    if v["working_on"]:
-        mem.remember("currently_working_on", v["working_on"])
+    facts = {"user_name": v["owner_name"], "currently_working_on": v["working_on"],
+             "profile.role": v["role"], "profile.company": v["company"], "profile.website": v["website"]}
+    for k, ans in v["role_answers"].items():
+        facts[f"q.{k}"] = ans
+    for k, val in facts.items():
+        if val:
+            mem.remember(k, val)
+
+
+def load_profile(mem) -> dict:
+    keys = {"working_on": "currently_working_on", "role": "profile.role",
+            "company": "profile.company", "website": "profile.website"}
+    p = {k: mem.get_fact(f) or "" for k, f in keys.items()}
+    for key in ("institution", "field", "courses", "lecture_language", "industry", "team_size",
+                "priorities", "job_title", "team", "main_projects"):
+        p[f"q.{key}"] = mem.get_fact(f"q.{key}") or ""
+    return p
+
+
+def load_roles() -> dict:
+    p = ROOT / "roles.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {"roles": {}}
+
+
+def migrate_legacy_key(store):
+    """Older installs kept the API key in config.local.json: move it into the encrypted store."""
+    p = ROOT / "config.local.json"
+    if not p.exists():
+        return
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    key = raw.pop("anthropic_api_key", None)
+    if key:
+        if not store.has("anthropic"):
+            store.set("anthropic", key)
+        p.write_text(json.dumps(raw, indent=2), encoding="utf-8")
 
 
 def main():
@@ -49,13 +94,16 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis by Apricot Digital")
     app.setQuitOnLastWindowClosed(False)
+    store = default_store()
+    migrate_legacy_key(store)
     cfg = load_config()
+    mem = Memory()
     bridge = Bridge()
     name = lambda: (cfg.get("assistant_names") or ["Jarvis"])[0]
     overlay = Overlay(bridge, LOGO, name, cfg.get("overlay_corner", "bottom-right"),
                       cfg.get("overlay_caption", True))
-    keep = {"assistant": None, "tray": None, "settings": None}
-    mouth, mouth_lock = JarvisVoice(), threading.Lock()
+    keep = {"assistant": None, "tray": None, "settings": None, "chat": None}
+    mouth, mouth_lock = make_tts(cfg, store), threading.Lock()
 
     def preview(voice, text=None):
         def run():
@@ -67,28 +115,35 @@ def main():
                     print("[preview]", e)
         threading.Thread(target=run, daemon=True).start()
 
+    def open_chat():
+        if keep["chat"] is None:
+            keep["chat"] = ChatWindow(bridge, name())
+            keep["chat"].submitted.connect(lambda t, sp: keep["assistant"].submit_text(t, sp))
+        keep["chat"].show()
+        keep["chat"].raise_()
+
     def start_assistant():
         from assistant import Assistant
 
-        keep["assistant"] = Assistant(cfg, bridge)
+        keep["assistant"] = Assistant(cfg, bridge, store)
         keep["assistant"].start()
         if QSystemTrayIcon.isSystemTrayAvailable():
-            keep["tray"] = make_tray(app, LOGO, name(), lambda: keep["assistant"].triggers.put(""),
+            keep["tray"] = make_tray(app, LOGO, name(), keep["assistant"].talk, open_chat,
                                      lambda: open_settings(False), app.quit)
 
     def open_settings(first):
-        win = SettingsWindow(cfg, LOGO, first, VOICES, preview,
-                             working_on=Memory().get_fact("currently_working_on") or "")
+        win = SettingsWindow(cfg, LOGO, first, VOICES, preview, store=store,
+                             roles=load_roles(), profile=load_profile(mem))
 
         def saved(v):
-            apply_values(cfg, v)
+            apply_values(cfg, v, store, mem)
             save_config(cfg)
             if first:
                 start_assistant()
                 keep["assistant"].say(
                     f"All set, {cfg['owner_name'] or 'friend'}. Press {cfg.get('hotkey', 'ctrl+alt+j')} "
                     f"or say hey {name()} whenever you need me.")
-            else:  # restart so shortcut, wake word and abilities take effect
+            else:  # restart so shortcut, wake word, slots and abilities take effect
                 subprocess.Popen([sys.executable] + sys.argv)
                 app.quit()
 

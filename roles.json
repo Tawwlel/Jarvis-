@@ -1,0 +1,30 @@
+{
+  "_comment": "PLACEHOLDER question sets - replace with your own. Each role has a label and a list of questions; every answer is saved to the user's local profile and shown to the assistant as context. Keys must be unique per role.",
+  "roles": {
+    "student": {
+      "label": "Student",
+      "questions": [
+        {"key": "institution", "prompt": "University or school"},
+        {"key": "field", "prompt": "What are you studying?"},
+        {"key": "courses", "prompt": "Current courses (comma separated)"},
+        {"key": "lecture_language", "prompt": "Language your lectures are taught in"}
+      ]
+    },
+    "business_owner": {
+      "label": "Business owner",
+      "questions": [
+        {"key": "industry", "prompt": "What does your business do?"},
+        {"key": "team_size", "prompt": "How many people work with you?"},
+        {"key": "priorities", "prompt": "Your top priorities this quarter"}
+      ]
+    },
+    "employee": {
+      "label": "Employee",
+      "questions": [
+        {"key": "job_title", "prompt": "Your job title"},
+        {"key": "team", "prompt": "Team or department"},
+        {"key": "main_projects", "prompt": "Your main projects right now"}
+      ]
+    }
+  }
+}

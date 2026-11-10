@@ -12,8 +12,8 @@ from PySide6.QtCore import (QObject, QPointF, QPropertyAnimation, QRectF, Qt, QT
 from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap,
                            QRadialGradient)
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMenu, QPushButton, QSystemTrayIcon, QTimeEdit,
-                               QVBoxLayout, QWidget)
+                               QLineEdit, QMenu, QPushButton, QSystemTrayIcon, QTabWidget,
+                               QTextBrowser, QTimeEdit, QVBoxLayout, QWidget)
 
 RED, GOLD = QColor(255, 48, 48), QColor(245, 193, 74)
 STATE_TEXT = {"idle": "", "listening": "LISTENING", "thinking": "THINKING",
@@ -24,11 +24,13 @@ class Bridge(QObject):
     """Thread-safe link: the assistant thread calls these, the UI thread reacts."""
     show_sig, hide_sig = Signal(), Signal(int)
     state_sig, level_sig = Signal(str), Signal(float)
+    chat_sig = Signal(str, str)  # role, text
 
     def show(self): self.show_sig.emit()
     def hide_later(self, ms=2500): self.hide_sig.emit(ms)
     def state(self, s): self.state_sig.emit(s)
     def level(self, v): self.level_sig.emit(float(v))
+    def chat(self, role, text): self.chat_sig.emit(role, text)
 
 
 class Overlay(QWidget):
@@ -181,7 +183,18 @@ QPushButton#ghost:hover{border-color:#f5c14a}
 QCheckBox{spacing:8px}
 QLabel#section{color:#f5c14a;font-size:10px;letter-spacing:3px;font-weight:600}
 QLabel#sub{color:#8b95aa}
+QTabWidget::pane{border:1px solid #1f283a;border-radius:6px;top:-1px}
+QTabBar::tab{background:#0a0d14;color:#8b95aa;padding:9px 14px;border:none;border-bottom:2px solid transparent}
+QTabBar::tab:selected{color:#e6ebf5;border-bottom:2px solid #ff3030}
+QTextBrowser{background:#0d121c;border:1px solid #1f283a;border-radius:6px;padding:8px}
 """
+
+PROVIDERS = {
+    "llm": [("Anthropic (Claude)", "anthropic"), ("OpenAI-compatible (OpenAI, OpenRouter, Groq...)", "openai_compatible")],
+    "stt": [("Local Whisper (free, private)", "local_whisper"), ("OpenAI Whisper (online)", "openai_whisper")],
+    "tts": [("Piper voices (free, private)", "piper"), ("ElevenLabs (online)", "elevenlabs")],
+}
+WHISPER_SIZES = ["base.en", "small", "medium", "large-v3"]
 
 
 def _section(text):
@@ -190,17 +203,41 @@ def _section(text):
     return lab
 
 
+def _note(text):
+    lab = QLabel(text)
+    lab.setObjectName("sub")
+    lab.setWordWrap(True)
+    return lab
+
+
+def _combo(pairs, current):
+    c = QComboBox()
+    for label, value in pairs:
+        c.addItem(label, value)
+    i = c.findData(current)
+    c.setCurrentIndex(max(0, i))
+    return c
+
+
+def _csv(text):
+    return [t.strip() for t in text.split(",") if t.strip()]
+
+
 class SettingsWindow(QWidget):
     saved = Signal(dict)
 
-    def __init__(self, cfg: dict, logo_path: str, first_run: bool, voices: list, preview, working_on=""):
+    def __init__(self, cfg: dict, logo_path: str, first_run: bool, voices: list, preview,
+                 store=None, roles: dict | None = None, profile: dict | None = None):
         super().__init__()
         self.setWindowTitle("Jarvis by Apricot Digital")
         self.setStyleSheet(QSS)
-        self.setMinimumWidth(480)
-        self.cfg, self.preview = cfg, preview
+        self.setMinimumWidth(560)
+        self.cfg, self.preview, self.store = cfg, preview, store
+        self.roles = (roles or {}).get("roles", {})
+        profile = profile or {}
+        has = lambda k: bool(store and store.has(k))
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 24)
+        root.setContentsMargins(26, 22, 26, 22)
         root.setSpacing(10)
 
         head = QHBoxLayout()
@@ -218,18 +255,45 @@ class SettingsWindow(QWidget):
         head.addLayout(titles)
         head.addStretch()
         root.addLayout(head)
-        intro = QLabel("Hi, I'm your Jarvis. Tell me a little about you and I'll take it from there."
-                       if first_run else "Settings")
-        intro.setObjectName("sub")
-        intro.setWordWrap(True)
-        root.addWidget(intro)
+        root.addWidget(_note("Hi, I'm your Jarvis. Tell me a little about you and I'll take it from there."
+                             if first_run else "Settings"))
+        tabs = QTabWidget()
+        root.addWidget(tabs)
 
-        form = QFormLayout()
-        form.setSpacing(9)
+        # ---------------- You ----------------
+        you = QWidget()
+        f = QFormLayout(you)
+        f.setSpacing(9)
         self.name = QLineEdit(cfg.get("owner_name", ""))
         self.name.setPlaceholderText("What's your name?")
-        self.work = QLineEdit(working_on)
+        self.work = QLineEdit(profile.get("working_on", ""))
         self.work.setPlaceholderText("What are you currently working on?")
+        self.role = QComboBox()
+        self.role.addItem("Choose...", "")
+        for key, r in self.roles.items():
+            self.role.addItem(r["label"], key)
+        self.role.setCurrentIndex(max(0, self.role.findData(profile.get("role", ""))))
+        self.company = QLineEdit(profile.get("company", ""))
+        self.website = QLineEdit(profile.get("website", ""))
+        self.website.setPlaceholderText("https://")
+        self.role_box = QFormLayout()
+        self.role_fields: dict[str, QLineEdit] = {}
+        self._profile = profile
+        f.addRow(_section("You"))
+        f.addRow("Name", self.name)
+        f.addRow("I am a", self.role)
+        f.addRow("Company", self.company)
+        f.addRow("Website", self.website)
+        f.addRow("Working on", self.work)
+        f.addRow(self.role_box)
+        self.role.currentIndexChanged.connect(self._rebuild_role)
+        self._rebuild_role()
+        tabs.addTab(you, "You")
+
+        # ---------------- Assistant ----------------
+        asst = QWidget()
+        f = QFormLayout(asst)
+        f.setSpacing(9)
         self.names = QLineEdit(", ".join(cfg.get("assistant_names", ["Jarvis"])))
         self.voice = QComboBox()
         self.voice.addItems(voices)
@@ -240,13 +304,6 @@ class SettingsWindow(QWidget):
         vrow = QHBoxLayout()
         vrow.addWidget(self.voice, 1)
         vrow.addWidget(pv)
-        self.key = QLineEdit()
-        self.key.setEchoMode(QLineEdit.Password)
-        self.key.setPlaceholderText("sk-ant-...  (saved)" if self._has_key() else "sk-ant-...")
-        self.cal = QLineEdit()
-        self.cal.setEchoMode(QLineEdit.Password)
-        self.cal.setPlaceholderText("Calendar iCal link (saved)" if cfg.get("integrations", {}).get(
-            "calendar_ics_url") else "Private iCal link from Google/Outlook (optional)")
         self.brief_on = QCheckBox("Daily brief at")
         self.brief_on.setChecked(cfg.get("briefing_enabled", True))
         self.brief_time = QTimeEdit()
@@ -258,51 +315,142 @@ class SettingsWindow(QWidget):
         brow.addWidget(self.brief_time)
         brow.addStretch()
         self.hotkey = QLineEdit(cfg.get("hotkey", "ctrl+alt+j"))
-        flags = cfg.get("tools_enabled", {})
-        self.wake = QCheckBox("Answer to \"Hey <name>\" (always listening, on this PC only)")
+        self.wake = QCheckBox('Answer to "Hey <name>" (always listening, on this PC only)')
         self.wake.setChecked(cfg.get("wake_word_enabled", True))
+        f.addRow(_section("Assistant"))
+        f.addRow("Call me", self.names)
+        f.addRow("Voice", vrow)
+        f.addRow(_section("Routine"))
+        f.addRow("", brow)
+        f.addRow("Shortcut", self.hotkey)
+        f.addRow(self.wake)
+        tabs.addTab(asst, "Assistant")
+
+        # ---------------- Keys & models ----------------
+        km = QWidget()
+        f = QFormLayout(km)
+        f.setSpacing(9)
+        slots = cfg.get("slots", {})
+        self.llm_p = _combo(PROVIDERS["llm"], slots.get("llm", {}).get("provider", "anthropic"))
+        self.base_url = QLineEdit(slots.get("llm", {}).get("base_url", "https://api.openai.com/v1"))
+        self.m_fast = QLineEdit(cfg["models"].get("tier1_cloud", ""))
+        self.m_strong = QLineEdit(cfg["models"].get("tier2_cloud", ""))
+        self.m_local = QLineEdit(cfg["models"].get("tier0_local") or "")
+        self.m_local.setPlaceholderText("Ollama model, e.g. llama3.2:1b (optional)")
+        self.k_anthropic = self._secret("Anthropic key (sk-ant-...)", has("anthropic"))
+        self.k_openai = self._secret("OpenAI-compatible key", has("openai"))
+        self.stt_p = _combo(PROVIDERS["stt"], slots.get("stt", {}).get("provider", "local_whisper"))
+        self.stt_m = _combo([(x, x) for x in WHISPER_SIZES], slots.get("stt", {}).get("model", "base.en"))
+        self.tts_p = _combo(PROVIDERS["tts"], slots.get("tts", {}).get("provider", "piper"))
+        self.k_eleven = self._secret("ElevenLabs key", has("elevenlabs"))
+        self.eleven_voice = QLineEdit(slots.get("tts", {}).get("elevenlabs_voice_id", ""))
+        self.eleven_voice.setPlaceholderText("ElevenLabs voice ID")
+        f.addRow(_note("Keys are stored encrypted in Windows Credential Manager, never in a file. "
+                       "Leave a key blank to keep the saved one."))
+        f.addRow(_section("Language model"))
+        f.addRow("Provider", self.llm_p)
+        f.addRow("Base URL", self.base_url)
+        f.addRow("Fast model", self.m_fast)
+        f.addRow("Strong model", self.m_strong)
+        f.addRow("Local model", self.m_local)
+        f.addRow("Anthropic key", self.k_anthropic)
+        f.addRow("OpenAI key", self.k_openai)
+        f.addRow(_section("Speech recognition"))
+        f.addRow("Provider", self.stt_p)
+        f.addRow("Local model", self.stt_m)
+        f.addRow(_note("base.en is English only. Choose small, medium or large-v3 for Urdu (slower, more accurate)."))
+        f.addRow(_section("Voice"))
+        f.addRow("Provider", self.tts_p)
+        f.addRow("ElevenLabs key", self.k_eleven)
+        f.addRow("ElevenLabs voice", self.eleven_voice)
+        tabs.addTab(km, "Keys and models")
+
+        # ---------------- Privacy ----------------
+        pr = QWidget()
+        f = QFormLayout(pr)
+        f.setSpacing(9)
+        p = cfg.get("privacy", {})
+        self.priv_mode = _combo([("Balanced - hide private details before going online", "balanced"),
+                                 ("Strict - keep anything private on this PC", "strict"),
+                                 ("Off - no filtering", "off")], p.get("mode", "balanced"))
+        self.priv_terms = QLineEdit(", ".join(p.get("private_terms", [])))
+        self.priv_terms.setPlaceholderText("Client names, project code names...")
+        self.priv_local = QLineEdit(", ".join(p.get("local_only_terms", [])))
+        self.priv_local.setPlaceholderText("salary, medical, legal...")
+        f.addRow(_note("Emails, phone numbers, card and ID numbers, keys and passwords are always swapped for "
+                       "placeholders before anything goes online, and put back in the answer."))
+        f.addRow("Mode", self.priv_mode)
+        f.addRow("Always hide", self.priv_terms)
+        f.addRow("Keep on this PC", self.priv_local)
+        f.addRow(_note("Topics in 'Keep on this PC' are never sent online. This needs a local model (Ollama)."))
+        tabs.addTab(pr, "Privacy")
+
+        # ---------------- Abilities ----------------
+        ab = QWidget()
+        f = QFormLayout(ab)
+        f.setSpacing(9)
+        flags = cfg.get("tools_enabled", {})
+        self.cal = QLineEdit()
+        self.cal.setEchoMode(QLineEdit.Password)
+        self.cal.setPlaceholderText("Calendar iCal link (saved)" if cfg.get("integrations", {}).get(
+            "calendar_ics_url") else "Private iCal link from Google/Outlook (optional)")
         self.computer = QCheckBox("Let me take control of the computer (always asks first)")
         self.computer.setChecked(flags.get("computer_control", False))
         self.notes = QCheckBox("Offer to take meeting notes and summaries")
         self.notes.setChecked(flags.get("notes", True))
+        self.roots = QLineEdit(", ".join(cfg.get("file_roots", [])))
+        self.roots.setPlaceholderText("Default: Documents, Desktop, Downloads")
+        f.addRow(_section("Abilities"))
+        f.addRow("Calendar", self.cal)
+        f.addRow(self.notes)
+        f.addRow(self.computer)
+        f.addRow("My files", self.roots)
+        f.addRow(_note("Jarvis can find, read and edit files only in these folders. Deleting always asks, "
+                       "and files go to the Recycle Bin."))
+        tabs.addTab(ab, "Abilities")
 
-        form.addRow(_section("You"))
-        form.addRow("Name", self.name)
-        form.addRow("Working on", self.work)
-        form.addRow(_section("Assistant"))
-        form.addRow("Call me", self.names)
-        form.addRow("Voice", vrow)
-        form.addRow(_section("Connections"))
-        form.addRow("API key", self.key)
-        form.addRow("Calendar", self.cal)
-        form.addRow(_section("Routine"))
-        form.addRow("", brow)
-        form.addRow("Shortcut", self.hotkey)
-        form.addRow(_section("Abilities"))
-        form.addRow(self.wake)
-        form.addRow(self.computer)
-        form.addRow(self.notes)
-        root.addLayout(form)
-        root.addSpacing(6)
         go = QPushButton("Start Jarvis" if first_run else "Save")
         go.clicked.connect(self._save)
         root.addWidget(go)
 
-    def _has_key(self):
-        k = self.cfg.get("anthropic_api_key", "")
-        return bool(k) and k != "sk-ant-..."
+    def _secret(self, placeholder, saved):
+        e = QLineEdit()
+        e.setEchoMode(QLineEdit.Password)
+        e.setPlaceholderText(placeholder + ("  (saved)" if saved else ""))
+        return e
+
+    def _rebuild_role(self):
+        while self.role_box.rowCount():
+            self.role_box.removeRow(0)
+        self.role_fields = {}
+        key = self.role.currentData()
+        for q in self.roles.get(key, {}).get("questions", []):
+            e = QLineEdit(self._profile.get(f"q.{q['key']}", ""))
+            self.role_fields[q["key"]] = e
+            self.role_box.addRow(q["prompt"], e)
 
     def values(self) -> dict:
-        names = [n.strip() for n in self.names.text().split(",") if n.strip()] or ["Jarvis"]
         return {
             "owner_name": self.name.text().strip(), "working_on": self.work.text().strip(),
-            "assistant_names": names, "voice": self.voice.currentText(),
-            "api_key": self.key.text().strip(), "calendar_url": self.cal.text().strip(),
+            "role": self.role.currentData() or "", "company": self.company.text().strip(),
+            "website": self.website.text().strip(),
+            "role_answers": {k: e.text().strip() for k, e in self.role_fields.items()},
+            "assistant_names": _csv(self.names.text()) or ["Jarvis"], "voice": self.voice.currentText(),
             "briefing_enabled": self.brief_on.isChecked(),
             "briefing_time": self.brief_time.time().toString("HH:mm"),
             "hotkey": self.hotkey.text().strip() or "ctrl+alt+j",
             "wake_word_enabled": self.wake.isChecked(),
-            "computer_control": self.computer.isChecked(), "notes": self.notes.isChecked(),
+            "llm_provider": self.llm_p.currentData(), "llm_base_url": self.base_url.text().strip(),
+            "model_fast": self.m_fast.text().strip(), "model_strong": self.m_strong.text().strip(),
+            "model_local": self.m_local.text().strip(),
+            "stt_provider": self.stt_p.currentData(), "stt_model": self.stt_m.currentData(),
+            "tts_provider": self.tts_p.currentData(), "elevenlabs_voice_id": self.eleven_voice.text().strip(),
+            "keys": {"anthropic": self.k_anthropic.text().strip(), "openai": self.k_openai.text().strip(),
+                     "elevenlabs": self.k_eleven.text().strip()},
+            "privacy_mode": self.priv_mode.currentData(), "private_terms": _csv(self.priv_terms.text()),
+            "local_only_terms": _csv(self.priv_local.text()),
+            "calendar_url": self.cal.text().strip(), "computer_control": self.computer.isChecked(),
+            "notes": self.notes.isChecked(), "file_roots": _csv(self.roots.text()),
         }
 
     def _save(self):
@@ -310,11 +458,49 @@ class SettingsWindow(QWidget):
         self.close()
 
 
-def make_tray(app, logo_path, name, on_talk, on_settings, on_quit):
+class ChatWindow(QWidget):
+    """Plain text chat with the assistant. Spoken conversations show up here too."""
+    submitted = Signal(str, bool)
+
+    def __init__(self, bridge: Bridge, name: str):
+        super().__init__()
+        self.setWindowTitle(f"{name} - chat")
+        self.setStyleSheet(QSS)
+        self.resize(440, 560)
+        lay = QVBoxLayout(self)
+        self.log = QTextBrowser()
+        self.log.setOpenExternalLinks(True)
+        self.input = QLineEdit()
+        self.input.setPlaceholderText(f"Message {name}...")
+        self.input.returnPressed.connect(self._send)
+        self.speak = QCheckBox("Speak replies aloud")
+        send = QPushButton("Send")
+        send.clicked.connect(self._send)
+        row = QHBoxLayout()
+        row.addWidget(self.input, 1)
+        row.addWidget(send)
+        lay.addWidget(self.log, 1)
+        lay.addLayout(row)
+        lay.addWidget(self.speak)
+        bridge.chat_sig.connect(self.add)
+
+    def add(self, role: str, text: str):
+        who, color = ("You", "#8b95aa") if role == "user" else ("Jarvis", "#f5c14a")
+        safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        self.log.append(f'<p style="margin:6px 0"><b style="color:{color}">{who}</b><br>{safe}</p>')
+
+    def _send(self):
+        t = self.input.text().strip()
+        if t:
+            self.input.clear()
+            self.submitted.emit(t, self.speak.isChecked())
+
+
+def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit):
     tray = QSystemTrayIcon(QIcon(logo_path), app)
     tray.setToolTip(f"{name} by Apricot Digital")
     menu = QMenu()
-    for label, fn in ((f"Talk to {name}", on_talk), ("Settings", on_settings), ("Quit", on_quit)):
+    for label, fn in ((f"Talk to {name}", on_talk), ("Open chat", on_chat), ("Settings", on_settings), ("Quit", on_quit)):
         act = QAction(label, menu)
         act.triggered.connect(fn)
         menu.addAction(act)

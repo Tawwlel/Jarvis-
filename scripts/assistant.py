@@ -14,19 +14,20 @@ from brain import Brain
 from hotkey import start_hotkey
 from notes import NO, YES, NotesSession
 from scheduler import Scheduler
+from providers import make_stt, make_tts
 from stt import JarvisEars
-from tts import JarvisVoice
 from wake import WakeListener
 
 BRIEF = re.compile(r"\b(daily )?(brief|briefing)\b|what'?s (on )?(my )?(day|today)|what do i have today", re.I)
 
 
 class Assistant:
-    def __init__(self, cfg: dict, bridge):
+    def __init__(self, cfg: dict, bridge, secrets=None):
         self.cfg, self.bridge = cfg, bridge
-        self.mic, self.mouth = audio.Mic(), JarvisVoice()
-        self.ears = JarvisEars("base.en")
-        self.brain = Brain(cfg)
+        self.mic = audio.Mic()
+        self.mouth = make_tts(cfg, secrets)
+        self.ears = make_stt(cfg, secrets)
+        self.brain = Brain(cfg, secrets)
         self.notes = NotesSession(self.brain.mem, self.brain.summarize_notes)
         self.triggers: queue.Queue = queue.Queue()
         self.busy = False
@@ -42,7 +43,7 @@ class Assistant:
         self.mic.start()
         tools.CTX["say"], tools.CTX["confirm"] = self.say, self.confirm
         Scheduler(self.cfg, self.brain.mem, self.say, self.notes, self.brief,
-                  on_offer=lambda: self.triggers.put("")).start()
+                  on_offer=lambda: self.triggers.put({"text": "", "silent": False})).start()
         if self.cfg.get("wake_word_enabled", True):
             WakeListener(self.mic, JarvisEars("tiny.en"), lambda: self.names,
                          self.on_wake, lambda: self.busy).start()
@@ -58,11 +59,18 @@ class Assistant:
             self.stop_notes.set()  # pressing the shortcut again ends note-taking
             return
         audio.stop_playback()
-        self.triggers.put("")
+        self.triggers.put({"text": "", "silent": False})
 
     def on_wake(self, command: str):
         audio.stop_playback()
-        self.triggers.put(command)
+        self.triggers.put({"text": command, "silent": False})
+
+    def submit_text(self, text: str, speak: bool = False):
+        """Typed message from the chat window. Replies are silent unless asked."""
+        self.triggers.put({"text": text, "silent": not speak})
+
+    def talk(self):
+        self.triggers.put({"text": "", "silent": False})
 
     # ---------- speaking ----------
     def _rest_state(self):
@@ -72,8 +80,11 @@ class Assistant:
             self.bridge.state("idle")
             self.bridge.hide_later(2500)
 
-    def say(self, msg: str):
+    def say(self, msg: str, silent: bool = False):
         print(f"{self.names[0]}: {msg}")
+        self.bridge.chat("assistant", msg)
+        if silent:
+            return
         with self.speak_lock:
             self.bridge.show()
             self.bridge.state("speaking")
@@ -102,10 +113,12 @@ class Assistant:
     # ---------- conversation ----------
     def loop(self):
         while True:
-            pre = self.triggers.get()
+            trig = self.triggers.get()
+            if isinstance(trig, str):
+                trig = {"text": trig, "silent": False}
             self.busy = True
             try:
-                self.session(pre)
+                self.session(trig["text"], trig["silent"])
             except Exception as e:
                 print("[session]", e)
                 self.say("Sorry, something went wrong on my side.")
@@ -122,9 +135,13 @@ class Assistant:
         self.bridge.state("thinking")
         text = self.ears.transcribe_array(a)
         print("You:", text)
+        if text.strip():
+            self.bridge.chat("user", text)
         return text
 
-    def session(self, pre: str):
+    def session(self, pre: str, silent: bool = False):
+        if pre:
+            self.bridge.chat("user", pre)
         text = pre or self.hear()
         for _ in range(4):  # allow short follow-ups ("want a summary?" -> "yes")
             if not text.strip():
@@ -136,7 +153,9 @@ class Assistant:
             if reply is None:
                 self.bridge.state("working")
                 reply = self.brain.respond(text)
-            self.say(reply)
+            self.say(reply, silent)
+            if silent:
+                return
             if self.notes.state == "active":
                 self.say(self.notes_mode())
             expecting = self.notes.state in ("offered", "summary_offered") or reply.rstrip().endswith("?")

@@ -87,6 +87,10 @@ def enabled_tools(cfg: dict) -> list:
         import jcalendar  # noqa: F401  (registers calendar_* tools)
     if flags.get("notes"):
         import notes  # noqa: F401  (registers note tools)
+    if flags.get("todos", True):
+        import todos  # noqa: F401  (registers todo_* tools)
+    if flags.get("files", True):
+        import files  # noqa: F401  (registers file_* tools)
     import briefing  # noqa: F401  (registers update_settings)
     groups = {
         "reminders": ["set_reminder"],
@@ -94,10 +98,13 @@ def enabled_tools(cfg: dict) -> list:
         "computer_control": [n for n in REGISTRY if n.startswith("computer_")],
         "calendar": [n for n in REGISTRY if n.startswith("calendar_")],
         "notes": ["notes_search", "note_add"],
+        "todos": [n for n in REGISTRY if n.startswith("todo_")],
+        "files": [n for n in REGISTRY if n.startswith("file_")],
     }
     names = {"get_time", "remember_fact", "update_settings"}
+    default_on = {"todos", "files"}
     for flag, tnames in groups.items():
-        if flags.get(flag):
+        if flags.get(flag, flag in default_on):
             names.update(tnames)
     return [REGISTRY[n] for n in sorted(names) if n in REGISTRY]
 

@@ -38,3 +38,13 @@ Legend: ✅ built · 🟡 partly built · ⬜ planned
 - ⬜ Coding helper mode
 - ⬜ Spend tracker and monthly cap per install
 - ⬜ Voice cloning for a custom signature voice
+
+## Phase 1 foundations
+- ✅ Swappable slots: LLM (Anthropic / OpenAI-compatible), speech recognition (local Whisper / OpenAI), voice (Piper / ElevenLabs)
+- ✅ Bring-your-own keys, stored in Windows Credential Manager (encrypted-file fallback); old config keys are migrated automatically
+- ✅ Encrypted local memory and profile (role, company, website, role questions)
+- ✅ Role picker (student / business owner / employee) - question sets live in roles.json (placeholders for now)
+- ✅ Reminders, to-dos, morning brief
+- ✅ Files: find, read, edit, move, open in allowed folders; delete always asks and goes to the Recycle Bin
+- ✅ Privacy router: private details are replaced with placeholders before going online; local-only topics never leave the PC
+- ✅ Text chat window (tray > Open chat); spoken conversations appear there too

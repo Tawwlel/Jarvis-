@@ -27,3 +27,6 @@ calendar_local.json
 
 # App log
 jarvis.log
+
+# Local encrypted data
+data/

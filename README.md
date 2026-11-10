@@ -10,7 +10,7 @@ everyone - each person's name, voice and abilities are set on the welcome screen
 2. `git clone https://github.com/Tawwlel/Jarvis-` and open the folder.
 3. Double-click `setup.bat`. It installs everything, downloads the voices and opens the welcome screen.
 4. Fill in your name, what you're working on, the names you'd like to call your assistant, your voice,
-   API key, optional calendar link, daily-brief time and shortcut. Click **Start Jarvis**.
+   role and profile, API keys (stored encrypted in Windows Credential Manager), optional calendar link, daily-brief time and shortcut. Click **Start Jarvis**.
 
 Later: double-click `start.bat` (runs in the background; check `jarvis.log` if something is off, or use
 `start_debug.bat`). Double-click `update.bat` to get new versions.

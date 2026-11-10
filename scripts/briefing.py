@@ -12,6 +12,7 @@ def gather(mem, cfg: dict) -> dict:
     now = dt.datetime.now()
     out = {"meetings": [], "prep": [], "reminders": mem.reminders_today(),
            "yesterday": [f"{m}: {t}" for m, t in mem.recent_summaries(2)],
+           "todos": [t["text"] for t in mem.list_todos()][:10],
            "working_on": mem.get_fact("currently_working_on")}
     if cfg.get("tools_enabled", {}).get("calendar"):
         import jcalendar
@@ -29,19 +30,16 @@ def gather(mem, cfg: dict) -> dict:
 def generate(brain, cfg: dict) -> str:
     name = cfg.get("owner_name") or "there"
     parts = gather(brain.mem, cfg)
-    if not (parts["meetings"] or parts["reminders"] or parts["yesterday"]):
+    if not (parts["meetings"] or parts["reminders"] or parts["yesterday"] or parts["todos"]):
         return f"Good morning {name}. Your calendar and reminders are clear today."
     raw = "\n".join(f"{k.upper()}:\n" + ("\n".join(v) if isinstance(v, list) else str(v or "-"))
                     for k, v in parts.items())
-    resp = brain.client.messages.create(
-        model=brain.models["tier1_cloud"], max_tokens=400,
-        system=(f"You are {brain.assistant_name}, a personal assistant giving {name} a spoken "
-                "morning brief. Plain sentences only, no markdown or lists, because it is read "
-                "aloud. Under 130 words. Start with a short greeting, give today's meetings in "
-                "time order, then what to prepare (use PREP and YESTERDAY, mention open action "
-                "items), then reminders. Do not invent anything."),
-        messages=[{"role": "user", "content": raw}])
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    return brain.ask(
+        f"You are {brain.assistant_name}, a personal assistant giving {name} a spoken "
+        "morning brief. Plain sentences only, no markdown or lists, because it is read "
+        "aloud. Under 130 words. Start with a short greeting, give today's meetings in "
+        "time order, then what to prepare (use PREP and YESTERDAY, mention open action "
+        "items and open to-dos), then reminders. Do not invent anything.", raw, 400)
 
 
 # ---- settings Jarvis may change by voice ("brief me at 7:30") ----

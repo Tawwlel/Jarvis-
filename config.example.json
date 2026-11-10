@@ -1,5 +1,5 @@
 {
-  "_comment": "Jarvis fills this in on first run through the welcome screen. Advanced users can edit config.local.json by hand. It is gitignored so keys and personal settings never reach GitHub.",
+  "_comment": "Defaults. Jarvis creates config.local.json from the welcome screen. API keys are NOT stored in config files: they go to the Windows Credential Manager.",
   "onboarded": false,
   "owner_name": "",
   "assistant_names": [
@@ -13,9 +13,8 @@
   "meeting_reminder_minutes": 10,
   "overlay_corner": "bottom-right",
   "overlay_caption": true,
-  "anthropic_api_key": "sk-ant-...",
   "models": {
-    "tier0_local": "llama3.2:1b",
+    "tier0_local": null,
     "tier1_cloud": "claude-haiku-5-5",
     "tier2_cloud": "claude-sonnet-5"
   },
@@ -24,9 +23,31 @@
     "calendar": false,
     "notes": true,
     "computer_control": false,
-    "visual_explainer": true
+    "visual_explainer": true,
+    "todos": true,
+    "files": true
   },
   "integrations": {
     "calendar_ics_url": null
-  }
+  },
+  "slots": {
+    "llm": {
+      "provider": "anthropic",
+      "base_url": "https://api.openai.com/v1"
+    },
+    "stt": {
+      "provider": "local_whisper",
+      "model": "base.en"
+    },
+    "tts": {
+      "provider": "piper",
+      "elevenlabs_voice_id": ""
+    }
+  },
+  "privacy": {
+    "mode": "balanced",
+    "private_terms": [],
+    "local_only_terms": []
+  },
+  "file_roots": []
 }
