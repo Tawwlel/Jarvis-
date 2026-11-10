@@ -345,7 +345,9 @@ class SettingsWindow(QWidget):
         self.m_fast = QLineEdit(cfg["models"].get("tier1_cloud", ""))
         self.m_strong = QLineEdit(cfg["models"].get("tier2_cloud", ""))
         self.m_local = QLineEdit(cfg["models"].get("tier0_local") or "")
-        self.m_local.setPlaceholderText("Ollama model, e.g. llama3.2:1b (optional)")
+        self.m_local.setPlaceholderText("Light Ollama model, e.g. gemma3:1b (optional)")
+        self.m_local_heavy = QLineEdit(cfg["models"].get("tier0_local_heavy") or "")
+        self.m_local_heavy.setPlaceholderText("Heavier Ollama model, e.g. gemma3:4b (optional)")
         self.k_anthropic = self._secret("Anthropic key (sk-ant-...)", has("anthropic"))
         self.k_openai = self._secret("OpenAI-compatible key", has("openai"))
         self.stt_p = _combo(PROVIDERS["stt"], slots.get("stt", {}).get("provider", "local_whisper"))
@@ -361,7 +363,10 @@ class SettingsWindow(QWidget):
         f.addRow("Base URL", self.base_url)
         f.addRow("Fast model", self.m_fast)
         f.addRow("Strong model", self.m_strong)
-        f.addRow("Local model", self.m_local)
+        f.addRow("Local model (light)", self.m_local)
+        f.addRow("Local model (heavy)", self.m_local_heavy)
+        f.addRow(_note("Local models run free on this PC through Ollama. Light answers quick, simple things; "
+                       "heavy handles harder questions offline and anything you keep private."))
         f.addRow("Anthropic key", self.k_anthropic)
         f.addRow("OpenAI key", self.k_openai)
         f.addRow(_section("Speech recognition"))
@@ -451,7 +456,7 @@ class SettingsWindow(QWidget):
             "wake_word_enabled": self.wake.isChecked(),
             "llm_provider": self.llm_p.currentData(), "llm_base_url": self.base_url.text().strip(),
             "model_fast": self.m_fast.text().strip(), "model_strong": self.m_strong.text().strip(),
-            "model_local": self.m_local.text().strip(),
+            "model_local": self.m_local.text().strip(), "model_local_heavy": self.m_local_heavy.text().strip(),
             "stt_provider": self.stt_p.currentData(), "stt_model": self.stt_m.currentData(),
             "language": self.lang.currentData(), "urdu_voice": self.urdu_voice.currentData(),
             "tts_provider": self.tts_p.currentData(), "elevenlabs_voice_id": self.eleven_voice.text().strip(),

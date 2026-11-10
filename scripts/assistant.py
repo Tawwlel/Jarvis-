@@ -39,6 +39,7 @@ class Assistant:
             # warm everything up so the first real request is quick
             warm = [pool.submit(e.warm_up) for e in (self.ears, self.wake_ears) if hasattr(e, "warm_up")]
             warm.append(pool.submit(self._warm_voice))
+            threading.Thread(target=self.brain.local.warm_up, daemon=True).start()
             for w in warm:
                 w.result()
         print(f"[timing] startup {time.time() - t0:.1f}s")

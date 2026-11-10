@@ -129,14 +129,29 @@ class LocalLLM:
         self.model, self.host = model, host
 
     def available(self) -> bool:
+        """True when Ollama is running AND this model has been downloaded."""
         if not self.model:
             return False
         try:
             import requests
 
-            return requests.get(self.host + "/api/tags", timeout=1.5).ok
+            names = {m.get("name", "") for m in requests.get(self.host + "/api/tags", timeout=1.5).json().get("models", [])}
+            want = self.model if ":" in self.model else self.model + ":latest"
+            return want in names or self.model in names
         except Exception:
             return False
+
+    def warm_up(self):
+        """Loads the model into memory now so the first answer is quick."""
+        if not self.model:
+            return
+        try:
+            import requests
+
+            requests.post(self.host + "/api/generate", timeout=120,
+                          json={"model": self.model, "keep_alive": "30m"})
+        except Exception:
+            pass
 
     def chat(self, system: str, messages: list, max_tokens=400) -> str | None:
         try:
@@ -145,8 +160,8 @@ class LocalLLM:
             msgs = [{"role": "system", "content": system}] + [
                 {"role": m["role"], "content": m.get("content") or m.get("text", "")}
                 for m in messages if m["role"] in ("user", "assistant")]
-            r = requests.post(self.host + "/api/chat", timeout=60, json={
-                "model": self.model, "messages": msgs, "stream": False,
+            r = requests.post(self.host + "/api/chat", timeout=120, json={
+                "model": self.model, "messages": msgs, "stream": False, "keep_alive": "30m",
                 "options": {"num_predict": max_tokens}})
             r.raise_for_status()
             return r.json()["message"]["content"].strip()

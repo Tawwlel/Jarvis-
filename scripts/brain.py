@@ -56,9 +56,11 @@ class Brain:
         tools.CTX["memory"] = self.mem
         self.tools = tools.enabled_tools(cfg)
         self.models = cfg["models"]
-        self.local = LocalLLM(self.models.get("tier0_local"))
+        self.local = LocalLLM(self.models.get("tier0_local"))  # light: quick, simple answers
+        self.local_heavy = LocalLLM(self.models.get("tier0_local_heavy"))  # heavier: better offline answers
         self._llm = None
         self._local_ok = (0.0, False)
+        self._heavy_ok = (0.0, False)
 
     # ---------- basics ----------
     @property
@@ -76,12 +78,34 @@ class Brain:
         key = "openai" if provider == "openai_compatible" else "anthropic"
         return bool(self.secrets.get(key)) or hasattr(self._llm, "_fake")
 
-    def local_ok(self) -> bool:
+    def _light_ok(self) -> bool:
         t, ok = self._local_ok
         if time.time() - t > 60:
             ok = self.local.available()
             self._local_ok = (time.time(), ok)
         return ok
+
+    def heavy_ok(self) -> bool:
+        t, ok = self._heavy_ok
+        if time.time() - t > 60:
+            ok = self.local_heavy.available()
+            self._heavy_ok = (time.time(), ok)
+        return ok
+
+    def local_ok(self) -> bool:
+        return self._light_ok() or self.heavy_ok()
+
+    def local_answer(self, system: str, heavy: bool = False) -> str | None:
+        """Answer on this PC. heavy=True prefers the bigger model; falls back to whichever exists."""
+        order = [(self.local_heavy, self.heavy_ok), (self.local, self._light_ok)]
+        if not heavy:
+            order.reverse()
+        for model, ok in order:
+            if ok():
+                reply = model.chat(system, self._history())
+                if reply:
+                    return reply
+        return None
 
     def _history(self) -> list:
         msgs = []
@@ -123,7 +147,8 @@ class Brain:
             return "sonnet" if re.search(
                 r"screen|computer|click|automate|open|browser|window|analy|research|debug", text, re.I) else "haiku"
         if self.local_ok():
-            verdict = self.local.chat("", [{"role": "user", "content": (
+            judge = self.local if self._light_ok() else self.local_heavy
+            verdict = judge.chat("", [{"role": "user", "content": (
                 "Classify the request. Reply with ONE word: SIMPLE (greeting/chitchat), "
                 "NORMAL (needs tools, facts, or short help), HARD (multi-step reasoning, "
                 f"planning, analysis).\nRequest: {text}")}], max_tokens=5)
@@ -172,15 +197,15 @@ class Brain:
         if policy == "blocked":
             reply = BLOCKED
         elif policy == "local":
-            reply = self.local.chat(system, self._history()) or BLOCKED
+            reply = self.local_answer(system, heavy=True) or BLOCKED
         else:
             tier = self.route(text)
             if tier == "local" and self.local_ok():
-                reply = self.local.chat(system, self._history())
+                reply = self.local_answer(system, heavy=False)
             if reply is None:
                 if not self.llm_ready():
                     # no online key: let the local model answer what it can (no tools)
-                    reply = (self.local.chat(system, self._history()) if self.local_ok() else None) or NO_KEY
+                    reply = self.local_answer(system, heavy=tier != "local") or NO_KEY
                 else:
                     model = self.models["tier2_cloud"] if tier == "sonnet" else self.models["tier1_cloud"]
                     try:
@@ -197,10 +222,12 @@ class Brain:
         policy = self._policy(user, red)
         if policy == "blocked":
             return BLOCKED
+        msg = [{"role": "user", "content": user}]
+        local = self.local_heavy if self.heavy_ok() else self.local
         if policy == "local":
-            return self.local.chat(system, [{"role": "user", "content": user}], max_tokens) or BLOCKED
+            return (local.chat(system, msg, max_tokens) if self.local_ok() else None) or BLOCKED
         if not self.llm_ready():
-            return NO_KEY
+            return (local.chat(system, msg, max_tokens) if self.local_ok() else None) or NO_KEY
         res = self.llm.complete(self.models["tier1_cloud"], red.redact(system),
                                 [{"role": "user", "content": red.redact(user)}], None, max_tokens)
         return red.restore(res.text).strip()

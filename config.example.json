@@ -16,6 +16,7 @@
   "overlay_caption": true,
   "models": {
     "tier0_local": null,
+    "tier0_local_heavy": null,
     "tier1_cloud": "claude-haiku-5-5",
     "tier2_cloud": "claude-sonnet-5"
   },
