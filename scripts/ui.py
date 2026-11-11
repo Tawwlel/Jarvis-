@@ -7,6 +7,7 @@ Jarvis by Apricot Digital - interface.
 - Tray icon: talk / settings / quit.
 """
 import math
+import re
 
 from PySide6.QtCore import (QObject, QPointF, QPropertyAnimation, QRectF, Qt, QTime, QTimer, Signal)
 from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap,
@@ -233,6 +234,7 @@ class WelcomeWindow(QWidget):
     """First start: three plain steps and one button. Everything else stays in Settings for later."""
     started = Signal(dict)
     more = Signal()
+    restore = Signal()
 
     def __init__(self, logo_path: str):
         super().__init__()
@@ -241,18 +243,18 @@ class WelcomeWindow(QWidget):
                                  "QLabel#h{font-size:17px;font-weight:600}"
                                  "QPushButton#pick{padding:9px 18px;border:1px solid #5a2a1c;color:#d9a97a;background:transparent;letter-spacing:0px;font-size:15px}"
                                  "QPushButton#pick:checked{border:1px solid #ffb347;color:#ffe3b8;background:rgba(255,179,71,.22)}"
-                                 "QPushButton#go{font-size:15px;padding:14px 46px}")
+                                 "QPushButton#go{font-size:15px;padding:12px 46px}")
         self.setFixedWidth(600)
         root = QVBoxLayout(self)
-        root.setContentsMargins(34, 26, 34, 26)
-        root.setSpacing(14)
+        root.setContentsMargins(34, 16, 34, 14)
+        root.setSpacing(9)
         logo = QLabel()
-        logo.setPixmap(QPixmap(logo_path).scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setPixmap(QPixmap(logo_path).scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         logo.setAlignment(Qt.AlignCenter)
         title = QLabel("WELCOME TO JARVIS")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size:24px;font-weight:700;letter-spacing:6px;color:#ffd08a")
-        sub = QLabel("Three quick steps. No technical knowledge needed.")
+        title.setStyleSheet("font-size:20px;font-weight:700;letter-spacing:6px;color:#ffd08a")
+        sub = QLabel("A few quick steps. No technical knowledge needed.")
         sub.setAlignment(Qt.AlignCenter)
         sub.setObjectName("sub")
         for w in (logo, title, sub):
@@ -260,7 +262,7 @@ class WelcomeWindow(QWidget):
 
         def step(n, heading, hint):
             box = QVBoxLayout()
-            box.setSpacing(6)
+            box.setSpacing(4)
             row = QHBoxLayout()
             num = QLabel(str(n))
             num.setObjectName("step")
@@ -270,16 +272,17 @@ class WelcomeWindow(QWidget):
             row.addWidget(num)
             row.addWidget(h, 1)
             box.addLayout(row)
-            note = _note(hint)
-            note.setContentsMargins(30, 0, 0, 0)
-            box.addWidget(note)
+            if hint:
+                note = _note(hint)
+                note.setContentsMargins(30, 0, 0, 0)
+                box.addWidget(note)
             inner = QHBoxLayout()
             inner.setContentsMargins(30, 0, 0, 0)
             box.addLayout(inner)
             root.addLayout(box)
             return inner
 
-        r1 = step(1, "Your name and language", "Jarvis will speak and answer in the language you pick.")
+        r1 = step(1, "Your name and language", "Jarvis will answer in the language you pick.")
         self.name = QLineEdit()
         self.name.setPlaceholderText("Your name")
         r1.addWidget(self.name, 1)
@@ -293,15 +296,24 @@ class WelcomeWindow(QWidget):
             r1.addWidget(b)
         self._pick("auto")
 
-        r2 = step(2, "Connect the brain", "Paste the key Apricot Digital gave you. You can also add it later in Settings.")
+        r2 = step(2, "Connect the brain", "Paste the key Apricot Digital gave you (or add it later in Settings).")
         self.key = QLineEdit()
         self.key.setEchoMode(QLineEdit.Password)
         self.key.setPlaceholderText("Paste your key here (starts with sk-ant-)")
         r2.addWidget(self.key, 1)
 
-        r3 = step(3, "WhatsApp (optional)", "Lets Jarvis find invoices and photos people sent you. It only reads; it never sends.")
-        self.wa = QCheckBox("Link my WhatsApp now (you will scan one QR code with your phone)")
+        r3 = step(3, "WhatsApp (optional)", "")
+        self.wa = QCheckBox("Link my WhatsApp now (one QR code scan). Read-only.")
         r3.addWidget(self.wa, 1)
+
+        r4 = step(4, "Backup (recommended)", "A locked daily copy of your settings and notes. Don't forget this password.")
+        self.bk_email = QLineEdit()
+        self.bk_email.setPlaceholderText("Your email, for backups")
+        self.bk_pw = QLineEdit()
+        self.bk_pw.setEchoMode(QLineEdit.Password)
+        self.bk_pw.setPlaceholderText("Choose a backup password")
+        r4.addWidget(self.bk_email, 3)
+        r4.addWidget(self.bk_pw, 2)
 
         go = QPushButton("START JARVIS")
         go.setObjectName("go")
@@ -310,16 +322,20 @@ class WelcomeWindow(QWidget):
         row.addStretch()
         row.addWidget(go)
         row.addStretch()
-        root.addSpacing(6)
+        root.addSpacing(2)
         root.addLayout(row)
         self.warn = QLabel("")
         self.warn.setAlignment(Qt.AlignCenter)
         self.warn.setWordWrap(True)
-        self.warn.setMinimumHeight(42)  # room for two lines, so showing it never squeezes the form
+        self.warn.setMinimumHeight(34)  # room for two lines, so showing it never squeezes the form
         self.warn.setStyleSheet("color:#ff6b57")
         root.addWidget(self.warn)
         foot = QHBoxLayout()
-        foot.addWidget(_note("Jarvis keeps itself up to date. Nothing to install later."), 1)
+        foot.addStretch()
+        rs = QPushButton("Restore from a backup")
+        rs.setObjectName("ghost")
+        rs.clicked.connect(self.restore.emit)
+        foot.addWidget(rs)
         adv = QPushButton("More settings")
         adv.setObjectName("ghost")
         adv.clicked.connect(self.more.emit)
@@ -336,8 +352,15 @@ class WelcomeWindow(QWidget):
         if key and not key.startswith("sk-"):
             self.warn.setText("That doesn't look like a key. It should start with sk-ant-. Leave it empty to add it later.")
             return
+        mail, bpw = self.bk_email.text().strip(), self.bk_pw.text()
+        if mail and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", mail):
+            self.warn.setText("Please check the backup email address.")
+            return
+        if bpw and len(bpw) < 6:
+            self.warn.setText("The backup password needs at least 6 characters.")
+            return
         self.started.emit({"owner_name": self.name.text().strip(), "language": self.language, "key": key,
-                           "link_whatsapp": self.wa.isChecked()})
+                           "link_whatsapp": self.wa.isChecked(), "backup_email": mail, "backup_password": bpw})
         self.close()
 
 
@@ -484,8 +507,30 @@ class SettingsWindow(QWidget):
         f.addRow(_section("WhatsApp history (iPhone)"))
         f.addRow(_note("Plug the iPhone in, open Apple Devices (or iTunes) and click Back Up Now. Jarvis then imports "
                        "every WhatsApp document and photo from the backup by itself."))
-        f.addRow("Backup password", self.ios_pw)
-        tabs.addTab(em, "Email & WhatsApp")
+        f.addRow("iPhone backup password", self.ios_pw)
+        tabs.addTab(em, "Email && WhatsApp")  # && shows a real & on a tab
+
+        # ---------------- Backup ----------------
+        bk = QWidget()
+        f = QFormLayout(bk)
+        f.setSpacing(9)
+        bcfg = cfg.get("backup", {})
+        self.bk_email = QLineEdit(bcfg.get("email", ""))
+        self.bk_email.setPlaceholderText("you@gmail.com")
+        self.bk_pw = self._secret("At least 6 characters", store and store.get("backup_password"))
+        self.bk_auto = QCheckBox("Make a small backup automatically every day")
+        self.bk_auto.setChecked(bcfg.get("auto", True))
+        f.addRow(_section("Backup"))
+        f.addRow(_note("One locked file holds your settings, keys, notes, reminders and learned layouts. Use it to move "
+                       "to a new laptop: install Jarvis there and press 'Restore from a backup' on the welcome screen. "
+                       "Without the password nobody can open the file - and it cannot be recovered if you forget it."))
+        f.addRow("Backup email", self.bk_email)
+        f.addRow("Backup password", self.bk_pw)
+        f.addRow(self.bk_auto)
+        f.addRow(_note("Daily backups go to your OneDrive (or Documents) folder 'Jarvis Backups'; the last 7 are kept. Once a "
+                       "week a copy is emailed to the backup email, if your email is connected in the Email tab. For a "
+                       "full backup including WhatsApp files, right-click the Jarvis icon > Back up Jarvis now."))
+        tabs.addTab(bk, "Backup")
 
         # ---------------- Keys & models ----------------
         km = QWidget()
@@ -620,6 +665,8 @@ class SettingsWindow(QWidget):
                       "digest_time": self.e_time.time().toString("HH:mm")},
             "email_password": self.e_pw.text().strip(),
             "iphone_backup_password": self.ios_pw.text().strip(),
+            "backup": {"email": self.bk_email.text().strip(), "auto": self.bk_auto.isChecked()},
+            "backup_password": self.bk_pw.text(),
         }
 
     def _save(self):
@@ -738,7 +785,8 @@ def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_s
         items += [("Link WhatsApp", lambda: on_ask("tool:whatsapp_link")),
                   ("Check WhatsApp for new files", lambda: on_ask("tool:whatsapp_sync")),
                   ("Import old WhatsApp files (iPhone backup)", lambda: on_ask("tool:iphone_whatsapp_import")),
-                  ("Check my email", lambda: on_ask("Give me my email digest."))]
+                  ("Check my email", lambda: on_ask("Give me my email digest.")),
+                  ("Back up Jarvis now", lambda: on_ask("tool:backup_now"))]
     if on_selftest:
         items.append(("Run document test", on_selftest))
     if on_speedtest:

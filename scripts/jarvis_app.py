@@ -31,8 +31,9 @@ def apply_values(cfg: dict, v: dict, store, mem):
     cfg.update({k: v[k] for k in ("owner_name", "assistant_names", "voice", "briefing_enabled",
                                   "briefing_time", "hotkey", "wake_word_enabled", "file_roots", "language")})
     cfg.setdefault("email", {}).update(v.get("email", {}))
-    for k in ("email_password", "iphone_backup_password"):
-        if v.get(k):
+    cfg.setdefault("backup", {}).update(v.get("backup", {}))
+    for k in ("email_password", "iphone_backup_password", "backup_password"):
+        if v.get(k) and (k != "backup_password" or len(v[k]) >= 6):
             store.set(k, v[k])
     for name, val in v["keys"].items():
         if val:
@@ -110,6 +111,16 @@ def main():
 
     # Only one Jarvis at a time: a second copy would load every model again and run out of memory.
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    import os
+    import time as _time
+    if os.environ.pop("JARVIS_RESTARTING", None):  # we were started by a restart: let the old copy finish closing
+        for _ in range(40):
+            p = QLocalSocket()
+            p.connectToServer(INSTANCE)
+            if not p.waitForConnected(200):
+                break
+            p.abort()
+            _time.sleep(0.25)
     probe = QLocalSocket()
     probe.connectToServer(INSTANCE)
     if probe.waitForConnected(500):
@@ -127,6 +138,11 @@ def main():
     QLocalServer.removeServer(INSTANCE)
     server = QLocalServer()
     server.listen(INSTANCE)
+    try:  # a backup restored just before this start: move its files into place before anything opens them
+        import backup
+        backup.apply_pending()
+    except Exception as e:
+        print("[backup] could not finish the restore:", e)
     store = default_store()
     migrate_legacy_key(store)
     cfg = load_config()
@@ -216,7 +232,8 @@ def main():
                     waits = {"whatsapp_link": "Opening WhatsApp. On your phone: WhatsApp > Settings > Linked devices > "
                                               "Link a device, then point the phone at the code on the screen.",
                              "whatsapp_sync": "Checking WhatsApp for new files. This can take a minute or two...",
-                             "iphone_whatsapp_import": "Looking for an iPhone backup on this laptop..."}
+                             "iphone_whatsapp_import": "Looking for an iPhone backup on this laptop...",
+                             "backup_now": "Making a full backup. This can take a minute if you have many WhatsApp files..."}
                     bridge.chat("assistant", waits.get(tool_name, "Working on it..."))
 
                     def work():
@@ -234,6 +251,10 @@ def main():
                                      on_selftest=run_selftest, on_speedtest=run_speedtest, on_ask=tray_ask)
         open_chat()
         threading.Thread(target=work, daemon=True).start()
+        if not keep.get("backup_agent"):
+            import backup
+            keep["backup_agent"] = backup.BackupAgent(cfg, lambda t: bridge.chat("assistant", t))
+            keep["backup_agent"].start()
 
     def open_settings(first):
         win = SettingsWindow(cfg, LOGO, first, VOICES, preview, store=store,
@@ -246,7 +267,7 @@ def main():
                 start_assistant(f"All set, {cfg['owner_name'] or 'friend'}. Press {cfg.get('hotkey', 'ctrl+alt+j')} "
                                 f"or say hey {name()} whenever you need me.")
             else:  # restart so shortcut, wake word, slots and abilities take effect
-                subprocess.Popen([sys.executable] + sys.argv)
+                subprocess.Popen([sys.executable] + sys.argv, env=dict(__import__('os').environ, JARVIS_RESTARTING='1'))
                 app.quit()
 
         win.saved.connect(saved)
@@ -276,7 +297,7 @@ def main():
 
     def restart_now():
         flags = 0x00000008 if sys.platform == "win32" else 0  # detached
-        subprocess.Popen([sys.executable] + sys.argv, creationflags=flags)
+        subprocess.Popen([sys.executable] + sys.argv, creationflags=flags, env=dict(os.environ, JARVIS_RESTARTING='1'))
         app.quit()
 
     def on_updated(note):
@@ -310,6 +331,10 @@ def main():
                 store.set("anthropic", v["key"])
             if v["owner_name"]:
                 mem.remember("user_name", v["owner_name"])
+            if v.get("backup_email"):
+                cfg.setdefault("backup", {})["email"] = v["backup_email"]
+            if v.get("backup_password"):
+                store.set("backup_password", v["backup_password"])
             save_config(cfg)
             who = cfg["owner_name"] or "friend"
             hello = (f"\u062e\u0648\u0634 \u0622\u0645\u062f\u06cc\u062f {who}\u06d4 \u0645\u06cc\u06ba \u062a\u06cc\u0627\u0631 \u06c1\u0648\u06ba\u06d4"
@@ -329,7 +354,40 @@ def main():
                                                  "the Jarvis icon near the clock: Link WhatsApp.")
                 threading.Thread(target=link, daemon=True).start()
 
+        def do_restore():
+            from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox
+            import backup
+            start = str(backup.default_dir(cfg)) if backup.default_dir(cfg).exists() else ""
+            path, _ = QFileDialog.getOpenFileName(win, "Choose your Jarvis backup file", start, "Jarvis backup (*.jbk)")
+            if not path:
+                return
+            try:
+                about = backup.info(Path(path))
+            except Exception as e:
+                QMessageBox.warning(win, "Jarvis", str(e))
+                return
+            label = f"Backup of {about.get('owner') or 'Jarvis'}, made {about.get('made', '?')}.\n\nBackup password:"
+            for _ in range(3):
+                pw, ok = QInputDialog.getText(win, "Restore from a backup", label, QLineEdit.Password)
+                if not ok:
+                    return
+                try:
+                    backup.restore(Path(path), pw)
+                    break
+                except PermissionError as e:
+                    label = f"{e}\n\nTry the backup password again:"
+                except Exception as e:
+                    QMessageBox.warning(win, "Jarvis", f"The backup could not be restored: {e}")
+                    return
+            else:
+                return
+            QMessageBox.information(win, "Jarvis", "Your backup is restored. Jarvis will now restart with your settings, "
+                                                   "notes and reminders.\n\nAfter it starts: link WhatsApp once more "
+                                                   "(Jarvis icon > Link WhatsApp).")
+            restart_now()
+
         win.started.connect(started)
+        win.restore.connect(do_restore)
         win.more.connect(lambda: (win.close(), open_settings(True)))
         keep["settings"] = win
         win.show()

@@ -145,9 +145,18 @@ def import_backup(password: str | None = None, base: Path | None = None) -> dict
                 folder = WA_DIR / chat
                 folder.mkdir(parents=True, exist_ok=True)
                 dest = folder / _safe(name)
+                got = tmp / f"m{pk}{ext}"
+                if not src.get(domain, f"Message/{local}", got):
+                    done.add(key)
+                    continue
+                if dest.exists() and dest.stat().st_size == got.stat().st_size:
+                    got.unlink()  # already here (e.g. restored from a Jarvis backup): never keep two copies
+                    done.add(key)
+                    continue
                 if dest.exists():
                     dest = folder / f"{dest.stem}_{pk}{dest.suffix}"
-                if src.get(domain, f"Message/{local}", dest):
+                shutil.move(str(got), dest)
+                if True:
                     ts = APPLE_TIME + float(when or 0)
                     try:
                         os.utime(dest, (ts, ts))  # so "latest", "in March" etc. work by the day it was sent

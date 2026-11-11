@@ -87,6 +87,52 @@ try:
     check("chat + settings windows build on Windows", "email" in s.values())
 except Exception as e:
     check("windows build on Windows", False, repr(e))
+# ---- backup -> "new laptop" -> restore, through this machine's real secure storage ----
+try:
+    import json, time  # noqa
+    import backup, memory, secrets_store  # noqa
+    A = tmp / "old" / "app"
+    A.mkdir(parents=True)
+    config.ROOT = A
+    memory.DB = A / "jarvis_memory.db"
+    st = secrets_store.default_store()
+    st.set("anthropic", "sk-ant-SMOKE")
+    st.delete("_memory_key")
+    secrets_store.set_default_store(None)
+    st = secrets_store.default_store()
+    m = memory.Memory()
+    m.add_note("Khan (today)", "Khan Traders wants 30 day credit")
+    m.add_todo("Pay electricity bill")
+    m.db.close()
+    (A / "config.local.json").write_text(json.dumps({"owner_name": "Smoke", "language": "ur", "onboarded": True}))
+    f = backup.create("secret12", tmp / "bk", full=True, cfg={"owner_name": "Smoke"})
+    check("backup file made and unreadable without the password", b"SMOKE" not in f.read_bytes() and b"Khan" not in f.read_bytes(), st.backend)
+    st.delete("anthropic")
+    st.delete("_memory_key")  # the new laptop has no keys
+    secrets_store.set_default_store(None)
+    B = tmp / "new" / "app"
+    B.mkdir(parents=True)
+    config.ROOT = B
+    memory.DB = B / "jarvis_memory.db"
+    try:
+        backup.restore(f, "wrong-pass")
+        check("wrong backup password refused", False)
+    except PermissionError:
+        check("wrong backup password refused", True)
+    backup.restore(f, "secret12")
+    backup.apply_pending()
+    st = secrets_store.default_store()
+    m2 = memory.Memory()
+    check("restore on a 'new laptop': key, notes and to-dos are back",
+          st.get("anthropic") == "sk-ant-SMOKE" and "30 day credit" in m2.notes_search("credit")
+          and m2.list_todos()[0]["text"] == "Pay electricity bill")
+    m2.db.close()
+    for k in ("anthropic", "_memory_key", "backup_password"):
+        st.delete(k)
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    check("backup and restore on Windows", False, repr(e))
 import tts, stt  # noqa
 check("default voice bundled", (app / "voices" / "en_US-amy-medium.onnx").exists())
 check("listening models bundled", (app / "whisper_model" / "faster-whisper-base" / "model.bin").exists()
