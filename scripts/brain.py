@@ -50,7 +50,11 @@ HARD_HINTS = re.compile(
 ACTION = re.compile(
     r"\b(find|search|look ?up|list|open|show me|get me|send|delete|remove|move|copy|rename|collect|remind|"
     r"schedule|book|add (a |an )?(task|todo|to-do|event|meeting|note)|go (to|through|into)|take notes|"
-    r"what'?s on my|do i have|e-?mails?|inbox|digest|mails?)\b|"
+    r"what'?s on my|do i have|e-?mails?|inbox|digest|mails?|"
+    # document words on their own, and Roman-Urdu commands ("invoices dikhao", "WhatsApp se quotation nikalo")
+    r"invoices?|quotations?|quotes?|receipts?|challans?|bills?|agreements?|contracts?|documents?|files?|folders?|"
+    r"whatsapp|iphone|backup|sync|link|import|total|kul|kitn[aie]|dikha[oe]?|dikhao|nikal[oe]?|dh?oond[oh]?|dhund[oh]?|"
+    r"talash|khol[oe]?|bhej[oe]?|jama|raseed|parchi|yaad dila)\b|"
     r"\bmy (files?|folders?|documents?|docs|invoices?|quotations?|quotes|receipts?|pdfs?|photos?|calendar|"
     r"meetings?|reminders?|tasks|todos?|notes|emails?|whatsapp|computer|laptop|screen|desktop|downloads)\b|"
     r"ای میل|میل|فائل|انوائس|کوٹیشن|رسید|یاد دہانی|میٹنگ|کھولو|ڈھونڈ|دکھاؤ|تلاش", re.I)

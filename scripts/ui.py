@@ -182,6 +182,8 @@ QPushButton:hover{background:rgba(255,179,71,.30)}
 QPushButton#ghost{background:transparent;border:1px solid #5a2a1c;color:#d9a97a;padding:7px 12px}
 QPushButton#ghost:hover{border-color:#ffb347}
 QCheckBox{spacing:8px}
+QCheckBox::indicator{width:15px;height:15px;border:1px solid #b98e68;background:#1d0c09}
+QCheckBox::indicator:checked{background:#ffb347;border:1px solid #ffb347}
 QLabel#section{color:#ffb347;font-size:11px;letter-spacing:3px;font-weight:600}
 QLabel#sub{color:#b98e68}
 QTabWidget::pane{border:1px solid #3a1a12;top:-1px}
@@ -225,6 +227,118 @@ def _combo(pairs, current):
 
 def _csv(text):
     return [t.strip() for t in text.split(",") if t.strip()]
+
+
+class WelcomeWindow(QWidget):
+    """First start: three plain steps and one button. Everything else stays in Settings for later."""
+    started = Signal(dict)
+    more = Signal()
+
+    def __init__(self, logo_path: str):
+        super().__init__()
+        self.setWindowTitle("Welcome to Jarvis")
+        self.setStyleSheet(QSS + "QLabel#step{color:#ffb347;font-size:22px;font-weight:700}"
+                                 "QLabel#h{font-size:17px;font-weight:600}"
+                                 "QPushButton#pick{padding:9px 18px;border:1px solid #5a2a1c;color:#d9a97a;background:transparent;letter-spacing:0px;font-size:15px}"
+                                 "QPushButton#pick:checked{border:1px solid #ffb347;color:#ffe3b8;background:rgba(255,179,71,.22)}"
+                                 "QPushButton#go{font-size:15px;padding:14px 46px}")
+        self.setFixedWidth(600)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(34, 26, 34, 26)
+        root.setSpacing(14)
+        logo = QLabel()
+        logo.setPixmap(QPixmap(logo_path).scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setAlignment(Qt.AlignCenter)
+        title = QLabel("WELCOME TO JARVIS")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size:24px;font-weight:700;letter-spacing:6px;color:#ffd08a")
+        sub = QLabel("Three quick steps. No technical knowledge needed.")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setObjectName("sub")
+        for w in (logo, title, sub):
+            root.addWidget(w)
+
+        def step(n, heading, hint):
+            box = QVBoxLayout()
+            box.setSpacing(6)
+            row = QHBoxLayout()
+            num = QLabel(str(n))
+            num.setObjectName("step")
+            num.setFixedWidth(30)
+            h = QLabel(heading)
+            h.setObjectName("h")
+            row.addWidget(num)
+            row.addWidget(h, 1)
+            box.addLayout(row)
+            note = _note(hint)
+            note.setContentsMargins(30, 0, 0, 0)
+            box.addWidget(note)
+            inner = QHBoxLayout()
+            inner.setContentsMargins(30, 0, 0, 0)
+            box.addLayout(inner)
+            root.addLayout(box)
+            return inner
+
+        r1 = step(1, "Your name and language", "Jarvis will speak and answer in the language you pick.")
+        self.name = QLineEdit()
+        self.name.setPlaceholderText("Your name")
+        r1.addWidget(self.name, 1)
+        self.langs = {}
+        for label, code in (("\u0627\u0631\u062f\u0648", "ur"), ("English", "en"), ("Both", "auto")):
+            b = QPushButton(label)
+            b.setObjectName("pick")
+            b.setCheckable(True)
+            b.clicked.connect(lambda _=False, c=code: self._pick(c))
+            self.langs[code] = b
+            r1.addWidget(b)
+        self._pick("auto")
+
+        r2 = step(2, "Connect the brain", "Paste the key Apricot Digital gave you. You can also add it later in Settings.")
+        self.key = QLineEdit()
+        self.key.setEchoMode(QLineEdit.Password)
+        self.key.setPlaceholderText("Paste your key here (starts with sk-ant-)")
+        r2.addWidget(self.key, 1)
+
+        r3 = step(3, "WhatsApp (optional)", "Lets Jarvis find invoices and photos people sent you. It only reads; it never sends.")
+        self.wa = QCheckBox("Link my WhatsApp now (you will scan one QR code with your phone)")
+        r3.addWidget(self.wa, 1)
+
+        go = QPushButton("START JARVIS")
+        go.setObjectName("go")
+        go.clicked.connect(self._go)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(go)
+        row.addStretch()
+        root.addSpacing(6)
+        root.addLayout(row)
+        self.warn = QLabel("")
+        self.warn.setAlignment(Qt.AlignCenter)
+        self.warn.setWordWrap(True)
+        self.warn.setMinimumHeight(42)  # room for two lines, so showing it never squeezes the form
+        self.warn.setStyleSheet("color:#ff6b57")
+        root.addWidget(self.warn)
+        foot = QHBoxLayout()
+        foot.addWidget(_note("Jarvis keeps itself up to date. Nothing to install later."), 1)
+        adv = QPushButton("More settings")
+        adv.setObjectName("ghost")
+        adv.clicked.connect(self.more.emit)
+        foot.addWidget(adv)
+        root.addLayout(foot)
+
+    def _pick(self, code):
+        self.language = code
+        for c, b in self.langs.items():
+            b.setChecked(c == code)
+
+    def _go(self):
+        key = self.key.text().strip()
+        if key and not key.startswith("sk-"):
+            self.warn.setText("That doesn't look like a key. It should start with sk-ant-. Leave it empty to add it later.")
+            return
+        self.started.emit({"owner_name": self.name.text().strip(), "language": self.language, "key": key,
+                           "link_whatsapp": self.wa.isChecked()})
+        self.close()
 
 
 class SettingsWindow(QWidget):
@@ -614,11 +728,17 @@ class ChatWindow(QWidget):
             self.submitted.emit(t, self.speak.isChecked())
 
 
-def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_selftest=None, on_speedtest=None):
+def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_selftest=None, on_speedtest=None,
+              on_ask=None):
     tray = QSystemTrayIcon(QIcon(logo_path), app)
     tray.setToolTip(f"{name} by Apricot Digital")
     menu = QMenu()
     items = [(f"Talk to {name}", on_talk), ("Open chat", on_chat)]
+    if on_ask:  # one-click versions of things a new user may not know how to say
+        items += [("Link WhatsApp", lambda: on_ask("tool:whatsapp_link")),
+                  ("Check WhatsApp for new files", lambda: on_ask("tool:whatsapp_sync")),
+                  ("Import old WhatsApp files (iPhone backup)", lambda: on_ask("tool:iphone_whatsapp_import")),
+                  ("Check my email", lambda: on_ask("Give me my email digest."))]
     if on_selftest:
         items.append(("Run document test", on_selftest))
     if on_speedtest:

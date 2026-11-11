@@ -19,7 +19,7 @@ from config import ROOT, load_config, save_config
 from memory import Memory
 from providers import make_tts
 from secrets_store import default_store
-from ui import Bridge, ChatWindow, Overlay, SettingsWindow, make_tray
+from ui import WelcomeWindow, Bridge, ChatWindow, Overlay, SettingsWindow, make_tray
 
 VOICES = ["amy", "ryan", "alan", "lessac", "southern"]
 LOGO = str(ROOT / "assets" / "logo.png")
@@ -118,10 +118,10 @@ def main():
         print("[app] Jarvis is already running; showing it instead.")
         from PySide6.QtWidgets import QMessageBox
         box = QMessageBox(QMessageBox.Information, "Jarvis by Apricot Digital",
-                          "Jarvis is already running.\n\nLook for the red logo near the clock (click the ^ arrow "
+                          "Jarvis is already running.\n\nLook for the Jarvis logo near the clock (click the ^ arrow "
                           "if it's hidden). I've opened its chat window for you.")
-        box.setStyleSheet("QWidget{background:#0a0d14;color:#e6ebf5;font-family:'Segoe UI'}"
-                          "QPushButton{background:#ff3030;color:white;border:none;border-radius:6px;padding:7px 18px}")
+        box.setStyleSheet("QWidget{background:#120706;color:#ffe3b8;font-family:'Bahnschrift','Segoe UI'}"
+                          "QPushButton{background:transparent;color:#ffb347;border:1px solid #ffb347;padding:7px 18px}")
         box.exec()
         return
     QLocalServer.removeServer(INSTANCE)
@@ -207,8 +207,31 @@ def main():
 
         if QSystemTrayIcon.isSystemTrayAvailable() and keep["tray"] is None:
             ask = lambda: keep["assistant"] and keep["assistant"].talk()
+            def tray_ask(text):
+                """Tray shortcuts. 'tool:<name>' runs that tool directly (works without the online brain);
+                anything else behaves exactly like typing the sentence in the chat."""
+                open_chat()
+                if text.startswith("tool:"):
+                    tool_name = text[5:]
+                    waits = {"whatsapp_link": "Opening WhatsApp. On your phone: WhatsApp > Settings > Linked devices > "
+                                              "Link a device, then point the phone at the code on the screen.",
+                             "whatsapp_sync": "Checking WhatsApp for new files. This can take a minute or two...",
+                             "iphone_whatsapp_import": "Looking for an iPhone backup on this laptop..."}
+                    bridge.chat("assistant", waits.get(tool_name, "Working on it..."))
+
+                    def work():
+                        import tools
+                        tools.enabled_tools(cfg)  # make sure the tool is registered even before the brain is up
+                        tools.CTX.setdefault("cfg", cfg)
+                        bridge.chat("assistant", str(tools.run_tool(tool_name, {})))
+                    threading.Thread(target=work, daemon=True).start()
+                elif keep["assistant"]:
+                    keep["chat"].add("user", text)
+                    keep["assistant"].submit_text(text, False)
+                else:
+                    keep["chat"].add("assistant", "One moment, I'm still starting up.")
             keep["tray"] = make_tray(app, LOGO, name(), ask, open_chat, lambda: open_settings(False), app.quit,
-                                     on_selftest=run_selftest, on_speedtest=run_speedtest)
+                                     on_selftest=run_selftest, on_speedtest=run_speedtest, on_ask=tray_ask)
         open_chat()
         threading.Thread(target=work, daemon=True).start()
 
@@ -230,9 +253,7 @@ def main():
         keep["settings"] = win
         win.show()
         if first:
-            preview("amy", "Hi, I'm Jarvis, by Apricot Digital. Tell me your name and what you are "
-                           "working on, and I'll take care of your meetings, notes and reminders. "
-                           "I can even take control of your computer to make life easier.")
+            preview("amy", "Hi, I'm Jarvis, by Apricot Digital. Fill in your details and press Start.")
 
     def on_second_copy():
         conn = server.nextPendingConnection()
@@ -280,10 +301,43 @@ def main():
         tick.start(6 * 3600 * 1000)
         keep["upd_timer"] = tick
 
+    def open_welcome():
+        win = WelcomeWindow(LOGO)
+
+        def started(v):
+            cfg["owner_name"], cfg["language"], cfg["onboarded"] = v["owner_name"], v["language"], True
+            if v["key"]:
+                store.set("anthropic", v["key"])
+            if v["owner_name"]:
+                mem.remember("user_name", v["owner_name"])
+            save_config(cfg)
+            who = cfg["owner_name"] or "friend"
+            hello = (f"\u062e\u0648\u0634 \u0622\u0645\u062f\u06cc\u062f {who}\u06d4 \u0645\u06cc\u06ba \u062a\u06cc\u0627\u0631 \u06c1\u0648\u06ba\u06d4"
+                     if v["language"] == "ur" else f"All set, {who}. Say hey {name()} whenever you need me.")
+            start_assistant(hello)
+            if v["link_whatsapp"]:
+                def link():
+                    try:
+                        import whatsapp_reader
+                        bridge.chat("assistant", "Opening WhatsApp. On your phone: WhatsApp > Settings > Linked devices > "
+                                                 "Link a device, then point the phone at the code on the screen.")
+                        msg = whatsapp_reader.link()
+                        bridge.chat("assistant", msg + (" I'm collecting your documents in the background now."
+                                                        if "linked" in msg else ""))
+                    except Exception as e:
+                        bridge.chat("assistant", f"WhatsApp could not be linked just now ({e}). You can try again from "
+                                                 "the Jarvis icon near the clock: Link WhatsApp.")
+                threading.Thread(target=link, daemon=True).start()
+
+        win.started.connect(started)
+        win.more.connect(lambda: (win.close(), open_settings(True)))
+        keep["settings"] = win
+        win.show()
+
     if cfg.get("onboarded"):
         start_assistant()
     else:
-        open_settings(True)
+        open_welcome()
     sys.exit(app.exec())
 
 
