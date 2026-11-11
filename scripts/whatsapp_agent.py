@@ -77,7 +77,16 @@ class WhatsAppAgent(threading.Thread):
 
     def run(self):
         time.sleep(60)  # let Jarvis finish starting first
+        seen = {}
         while True:
+            try:  # a new iPhone backup appeared: pull in all its WhatsApp documents
+                import iphone_backup
+                if iphone_backup.watch_new_backup(seen):
+                    msg = iphone_backup.iphone_whatsapp_import()
+                    if self.notify and msg.startswith("Imported"):
+                        self.notify(msg)
+            except Exception as e:
+                print("[wa-agent] iPhone backup:", e)
             if wa.PROFILE.exists() or (wa.WA_DIR.exists() and any(wa.WA_DIR.iterdir())):
                 try:
                     run_once(self.cfg, self.notify)

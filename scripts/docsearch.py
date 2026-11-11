@@ -13,9 +13,11 @@ Sources:
 Everything stays on this computer. The index lives in data/docs.db.
 """
 import difflib
+import json
 import re
 import shutil
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -71,28 +73,48 @@ def _db():
     DATA.mkdir(exist_ok=True)
     c = sqlite3.connect(DATA / "docs.db", timeout=15)
     cols = [r[1] for r in c.execute("PRAGMA table_info(docs)").fetchall()]
-    if cols and ("doc_date" not in cols or "v2" not in cols):
-        c.execute("DROP TABLE docs")  # older index format: rebuild it
+    if cols and ("doc_date" not in cols or "fields" not in cols):
+        c.execute("DROP TABLE docs")  # older index format: rebuild it (also re-reads photos for Urdu)
     c.execute("""CREATE TABLE IF NOT EXISTS docs(path TEXT PRIMARY KEY, source TEXT, chat TEXT, name TEXT,
                  ext TEXT, mtime REAL, size INTEGER, text TEXT, doc_type TEXT, amount TEXT, doc_date TEXT,
-                 v2 INTEGER)""")
+                 v2 INTEGER, fields TEXT)""")
     return c
 
 
 # ---------------- reading files ----------------
+_rapid = {}
+
+
 def _ocr(img) -> str:
+    """English/number text with RapidOCR, plus Urdu with the Urdu reader (both kept, so either language finds it)."""
+    latin = ""
     try:
         from rapidocr_onnxruntime import RapidOCR
         import numpy as np
-        res, _ = RapidOCR()(np.array(img.convert("RGB")))
-        return " ".join(r[1] for r in (res or []))
+        if "eng" not in _rapid:
+            _rapid["eng"] = RapidOCR()  # load the model once, not per picture
+        res, _ = _rapid["eng"](np.array(img.convert("RGB")))
+        latin = " ".join(r[1] for r in (res or []))
     except Exception:
         pass
+    urdu = ""
     try:
-        import pytesseract
-        return pytesseract.image_to_string(img)
+        import urdu_ocr
+        if urdu_ocr.available():
+            u = urdu_ocr.read(img)
+            if urdu_ocr.has_urdu(u):
+                urdu = u
+            elif not latin:
+                latin = u  # no RapidOCR: Tesseract's English is better than nothing
     except Exception:
-        return ""
+        pass
+    if not latin and not urdu:
+        try:
+            import pytesseract
+            latin = pytesseract.image_to_string(img)
+        except Exception:
+            pass
+    return (latin + "\n" + urdu).strip()
 
 
 def extract_text(p: Path) -> str:
@@ -157,7 +179,7 @@ def classify(name: str, text: str) -> str:
     return by_head or by_name
 
 
-_CUR = r"(?:pkr|rs\.?|rupees|usd|aed|sar|\$|£|€)"
+_CUR = r"(?:pkr|rs\.?|rupees|usd|aed|sar|\$|£|€|روپے|روپیہ|روپ)"
 _AMT = r"(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d{3,}(?:\.\d+)?)"
 
 
@@ -169,7 +191,8 @@ def find_amount(text: str) -> str:
         return v.replace(",", "").removesuffix(".00").rstrip(".")
     lines = t.splitlines()
     for i, line in enumerate(lines):
-        if re.search(r"grand total|total amount|amount received|amount paid|amount due|total|amount|net payable", line):
+        if re.search(r"grand total|total amount|amount received|amount paid|amount due|total|amount|net payable"
+                     r"|کل رقم|کل|رقم|ٹوٹل|میزان", line):
             for cand in (line, lines[i + 1] if i + 1 < len(lines) else ""):  # value may sit on the next line
                 m = re.search(rf"{_CUR}\s*{_AMT}", cand) or re.search(rf"{_AMT}\s*{_CUR}", cand)
                 if m:
@@ -177,7 +200,7 @@ def find_amount(text: str) -> str:
     cur = [clean(v) for v in re.findall(rf"{_CUR}\s*{_AMT}", t)]
     if cur:
         return max(cur, key=float)
-    m = re.findall(rf"(?:grand total|total|amount|net payable)\D{{0,15}}{_AMT}", t)
+    m = re.findall(rf"(?:grand total|total|amount|net payable|کل رقم|ٹوٹل|رقم)\D{{0,15}}{_AMT}", t)
     return clean(m[-1]) if m else ""
 
 
@@ -247,9 +270,14 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True) -> dict:
                 continue
             text = extract_text(p)
             chat = p.relative_to(root).parts[0] if mode == "chat" and len(p.relative_to(root).parts) > 1 else ""
-            db.execute("REPLACE INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,1)",
+            typ = classify(p.name, text)
+            fields = _fields(text, p.name, typ)
+            cat = json.loads(fields).get("category") if fields else None
+            if cat:  # "petrol receipts" should find a Shell receipt that never says "petrol"
+                text = text + "\n[" + CAT_WORDS.get(cat, cat.lower()) + "]"
+            db.execute("REPLACE INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)",
                        (key, source, chat, p.name, p.suffix.lower(), st.st_mtime, st.st_size, text[:30000],
-                        classify(p.name, text), find_amount(text), find_date(p.name, text, st.st_mtime)))
+                        typ, find_amount(text), find_date(p.name, text, st.st_mtime), fields))
             added += 1
     scope = tuple(s for s, ok in (("computer", include_computer), ("whatsapp", include_whatsapp)) if ok)
     for (path,) in db.execute(f"SELECT path FROM docs WHERE source IN ({','.join('?' * len(scope))})", scope).fetchall():
@@ -259,6 +287,33 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True) -> dict:
     total = db.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
     db.close()
     return {"added": added, "total": total}
+
+
+CAT_WORDS = {"Fuel": "fuel petrol diesel پٹرول", "Groceries": "groceries grocery sauda سودا", "Food": "food khana کھانا",
+             "Medical": "medical medicine dawai دوائی", "Utilities": "utility bill bijli بجلی",
+             "Transport": "transport travel kiraya کرایہ", "Office supplies": "office stationery",
+             "Hardware & building": "hardware building material"}
+
+
+def _fields(text, name, typ) -> str:
+    """Exact invoice/receipt details (number, total, tax, customer...) as JSON - see invoice_fields.py."""
+    if typ in ("other", "cv", "register") or not text:
+        return ""
+    try:
+        import invoice_fields
+        return json.dumps(invoice_fields.extract(text, name, typ), ensure_ascii=False)
+    except Exception as e:
+        print("[docs] fields:", e)
+        return ""
+
+
+def refresh_fields():
+    """Re-read details of every indexed document (after a new invoice layout was learned)."""
+    db = _db()
+    for path, text, name, typ in db.execute("SELECT path,text,name,doc_type FROM docs").fetchall():
+        db.execute("UPDATE docs SET fields=? WHERE path=?", (_fields(text, name, typ), path))
+    db.commit()
+    db.close()
 
 
 # ---------------- searching ----------------
@@ -404,6 +459,14 @@ def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200
             if len(sk) >= 2 and any(close(w) for w in words if w not in common and w.isascii() and len(w) >= 3):
                 return 0.7
             return 0.0
+        if t.isascii() and t.isalpha() and len(t) >= 3:  # "rehman" vs "رحمان" printed in Urdu
+            lt = _skeleton_lat(t).replace("z", "s").replace("h", "")
+            urw = [w for w in words if re.search(r"[\u0600-\u06FF]", w) and len(w) >= 2]
+            for w in urw:
+                sk = _skeleton_ur(w).replace("z", "s").replace("h", "")
+                if len(lt) >= 2 and sk and sk[0] == lt[0] and (sk == lt if len(lt) <= 3 else
+                                                              difflib.SequenceMatcher(None, lt, sk).ratio() >= 0.8):
+                    return 0.7
         if len(t) >= 5:
             near = difflib.get_close_matches(t, [w for w in words if w not in common and abs(len(w) - len(t)) <= 2],
                                              n=1, cutoff=0.8)
@@ -463,8 +526,36 @@ def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200
         it["also_in"] = [it["chat"]] if it["chat"] else []
         seen[k] = it
         items.append(it)
+    if (mode == "close" or not items) and terms:
+        by_meaning = _meaning(query, source)
+        if by_meaning:
+            mode, items = "meaning", by_meaning
     return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(items),
             "items": items[:limit]}
+
+
+def _meaning(query, source, k=8):
+    """Documents that match what the user MEANT, when no words match (semantic.py)."""
+    try:
+        import semantic
+        if not semantic.ready():
+            return []
+        hits = semantic.search(query, source, k=k)
+    except Exception as e:
+        print("[docs] meaning search:", e)
+        return []
+    if not hits:
+        return []
+    db = _db()
+    out = []
+    for score, path in hits:
+        r = db.execute("SELECT path,source,chat,name,doc_type,amount,doc_date,mtime FROM docs WHERE path=?",
+                       (path,)).fetchone()
+        if r:
+            out.append(dict(path=r[0], source=r[1], chat=r[2], name=r[3], type=r[4], amount=r[5], date=r[6],
+                            mtime=r[7], also_in=[r[2]] if r[2] else [], score=round(score, 3)))
+    db.close()
+    return out
 
 
 def compile_folder(items: list[dict], label: str) -> Path:
@@ -493,7 +584,9 @@ def _fmt(r: dict, n=12) -> str:
     kind = (r["type"] + "s") if r["type"] else "documents"
     head = {"all": f"All {kind}: {r['total']} found.",
             "specific": f"{r['total']} matching file(s).",
-            "close": "No exact match. These are the closest - ask the user if one of them is right."}[r["mode"]]
+            "close": "No exact match. These are the closest - ask the user if one of them is right.",
+            "meaning": "No file has those exact words; these match the MEANING - tell the user they're the likely "
+                       "ones and ask if they're right."}[r["mode"]]
     lines = [f"{i}. {it['name']}" + (f" (chat: {', '.join(it.get('also_in') or [it['chat']])})" if it["chat"] else "")
              + (f" [{it['type']}]" if it["type"] else "") + (f" total {it['amount']}" if it["amount"] else "")
              + f" - {_pretty_date(it.get('date'), it['mtime'])}"
@@ -520,10 +613,30 @@ def background_index(cfg: dict):
         t0 = time.time()
         r = reindex(cfg)
         print(f"[docs] index ready: {r['total']} files ({r['added']} new/changed) in {time.time() - t0:.0f}s")
+        threading.Thread(target=_vectors, daemon=True).start()
     except Exception as e:
         print("[docs] indexing failed:", e)
     finally:
         _index_lock.release()
+
+
+_vec_lock = threading.Lock()
+
+
+def _vectors():
+    """Meaning vectors for new files, in the background (first run downloads the ~120 MB model once)."""
+    if not _vec_lock.acquire(blocking=False):
+        return
+    try:
+        import semantic
+        t0 = time.time()
+        n = semantic.update_vectors()
+        if n:
+            print(f"[docs] meaning vectors: {n} new in {time.time() - t0:.0f}s")
+    except Exception as e:
+        print("[docs] meaning vectors failed:", e)
+    finally:
+        _vec_lock.release()
 
 
 def _wa_ready() -> bool:
@@ -545,7 +658,29 @@ def doc_search(query, source="any"):
         return "No WhatsApp files are saved on this laptop yet. Link WhatsApp (whatsapp_link) and then run whatsapp_sync, or tell the user to do so."
     with _index_lock:  # wait for a background index run instead of doing the work twice
         reindex(cfg, include_computer=source != "whatsapp", include_whatsapp=source != "computer")
+    threading.Thread(target=_vectors, daemon=True).start()
     return _fmt(search(query, source))
+
+
+@tool("doc_find_by_meaning",
+      "Find documents from a vague description when exact words won't work, e.g. 'the steel deal from the summer', "
+      "'contract with 30-day payment terms', 'woh bill jis mein late fee ka zikr tha'. Works across Urdu and "
+      "English. Tell the user these are likely matches.",
+      {"description": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "any"]}},
+      ["description"])
+def doc_find_by_meaning(description, source="any"):
+    try:
+        import semantic
+        if not semantic.ready():
+            threading.Thread(target=_vectors, daemon=True).start()
+            return "Meaning search is still getting ready (first-time setup). Use doc_search for now."
+    except Exception:
+        return "Meaning search isn't available on this laptop."
+    _vectors()
+    items = _meaning(description, source)
+    if not items:
+        return "Nothing matched that description."
+    return _fmt({"mode": "meaning", "type": "", "total": len(items), "items": items})
 
 
 @tool("doc_collect",

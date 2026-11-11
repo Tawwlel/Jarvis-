@@ -8,6 +8,9 @@ pip install -r requirements.txt --quiet
 echo Setting up WhatsApp reader...
 python -m playwright install chromium
 
+echo Urdu reader (Tesseract)...
+where tesseract >nul 2>nul || if not exist "%ProgramFiles%\Tesseract-OCR\tesseract.exe" winget install -e --id UB-Mannheim.TesseractOCR --silent --accept-package-agreements --accept-source-agreements
+
 echo Checking voices...
 python scripts\download_voices.py
 

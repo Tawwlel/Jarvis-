@@ -95,6 +95,8 @@ def enabled_tools(cfg: dict) -> list:
         import docsearch  # noqa: F401  (registers doc_* tools)
         import whatsapp_reader  # noqa: F401  (registers whatsapp_* tools)
         import whatsapp_agent  # noqa: F401  (registers the WhatsApp document agent's tools)
+        import iphone_backup  # noqa: F401  (registers iphone_whatsapp_import)
+        import invoice_fields  # noqa: F401  (invoice_totals, invoice_details, learn_invoice_layout)
     if flags.get("email", True):
         import email_agent  # noqa: F401  (registers email_* and add_to_calendar)
     import briefing  # noqa: F401  (registers update_settings)
@@ -107,7 +109,7 @@ def enabled_tools(cfg: dict) -> list:
         "notes": ["notes_search", "note_add"],
         "todos": [n for n in REGISTRY if n.startswith("todo_")],
         "files": [n for n in REGISTRY if n.startswith("file_")],
-        "documents": [n for n in REGISTRY if n.startswith("doc_") or n.startswith("whatsapp_")],
+        "documents": [n for n in REGISTRY if n.startswith("doc_") or n.startswith("whatsapp_") or n.startswith("iphone_") or n.startswith("invoice_") or n == "learn_invoice_layout"],
     }
     names = {"get_time", "remember_fact", "update_settings"}
     default_on = {"todos", "files", "documents", "email", "reminders"}

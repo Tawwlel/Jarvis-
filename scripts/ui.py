@@ -366,7 +366,12 @@ class SettingsWindow(QWidget):
         f.addRow("Mail server", self.e_server)
         f.addRow("Each digest covers", self.e_hours)
         f.addRow(erow)
-        tabs.addTab(em, "Email")
+        self.ios_pw = self._secret("Only if your iPhone backups are encrypted", store and store.get("iphone_backup_password"))
+        f.addRow(_section("WhatsApp history (iPhone)"))
+        f.addRow(_note("Plug the iPhone in, open Apple Devices (or iTunes) and click Back Up Now. Jarvis then imports "
+                       "every WhatsApp document and photo from the backup by itself."))
+        f.addRow("Backup password", self.ios_pw)
+        tabs.addTab(em, "Email & WhatsApp")
 
         # ---------------- Keys & models ----------------
         km = QWidget()
@@ -500,6 +505,7 @@ class SettingsWindow(QWidget):
                       "window_hours": float(self.e_hours.currentData()), "enabled": self.e_on.isChecked(),
                       "digest_time": self.e_time.time().toString("HH:mm")},
             "email_password": self.e_pw.text().strip(),
+            "iphone_backup_password": self.ios_pw.text().strip(),
         }
 
     def _save(self):

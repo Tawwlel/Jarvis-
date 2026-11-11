@@ -42,6 +42,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "pip failed" }
           & Jarvis/runtime/python.exe -m playwright install chromium
 
+      - name: Urdu reader + meaning model (bundled, so nothing downloads on first run)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install tesseract -y --no-progress
+          Copy-Item "C:\Program Files\Tesseract-OCR" Jarvis/tesseract -Recurse
+          New-Item -ItemType Directory -Force Jarvis/app/data/models, Jarvis/app/data/tessdata | Out-Null
+          gh release download models -p "e5-*" -D Jarvis/app/data/models
+          gh release download models -p "*.traineddata" -D Jarvis/app/data/tessdata
+
       - name: Jarvis.exe launcher
         shell: pwsh
         run: |

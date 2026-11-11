@@ -21,3 +21,6 @@ edge-tts
 miniaudio
 playwright
 msal
+whatsapp-chat-exporter
+iphone_backup_decrypt
+tokenizers
