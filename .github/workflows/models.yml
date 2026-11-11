@@ -1,0 +1,29 @@
+name: Mirror models
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download
+        run: |
+          set -e
+          mkdir m && cd m
+          base=https://huggingface.co/Xenova/multilingual-e5-small/resolve/main
+          curl -fsSL -o e5-small-int8.onnx "$base/onnx/model_quantized.onnx"
+          curl -fsSL -o e5-tokenizer.json "$base/tokenizer.json"
+          curl -fsSL -o urd.traineddata https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/urd.traineddata
+          curl -fsSL -o eng.traineddata https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/eng.traineddata
+          ls -la
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view models >/dev/null 2>&1 || gh release create models --title "Jarvis models" --notes "Model files Jarvis downloads on first use (multilingual-e5-small int8 - MIT; Tesseract tessdata_best - Apache-2.0)."
+          gh release upload models m/* --clobber
