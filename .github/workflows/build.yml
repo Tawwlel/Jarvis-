@@ -40,7 +40,9 @@ jobs:
           & Jarvis/runtime/python.exe -m pip install setuptools wheel --no-warn-script-location
           & Jarvis/runtime/python.exe -m pip install -r requirements.txt rapidocr-onnxruntime --no-warn-script-location
           if ($LASTEXITCODE -ne 0) { throw "pip failed" }
+          $env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\Jarvis\browsers"  # inside the folder, so the zip carries it
           & Jarvis/runtime/python.exe -m playwright install chromium
+          if (-not (Test-Path Jarvis/browsers)) { throw "browser not installed into the folder" }
 
       - name: Urdu reader + meaning model (bundled, so nothing downloads on first run)
         shell: pwsh
@@ -60,7 +62,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force Jarvis/app/voices | Out-Null
           & Jarvis/runtime/python.exe -c "from pathlib import Path; from piper.download_voices import download_voice; download_voice('en_US-amy-medium', Path('Jarvis/app/voices'))"
-          & Jarvis/runtime/python.exe -c "from faster_whisper import WhisperModel; [WhisperModel(m, device='cpu', compute_type='int8', download_root='Jarvis/app/whisper_model') for m in ('tiny.en', 'base')]"
+          & Jarvis/runtime/python.exe -c "from faster_whisper import download_model; [download_model(m, output_dir='Jarvis/app/whisper_model/faster-whisper-' + m) for m in ('tiny.en', 'base')]"
           if ($LASTEXITCODE -ne 0) { throw "model download failed" }
           Get-ChildItem Jarvis/app/voices, Jarvis/app/whisper_model
 
@@ -79,15 +81,15 @@ jobs:
           & Jarvis/runtime/python.exe tests/windows_smoke.py Jarvis/app
           if ($LASTEXITCODE -ne 0) { throw "smoke test failed" }
 
-      - name: Voice round trip (speak -> listen -> wake word), English and Urdu
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path Jarvis -DestinationPath Jarvis.zip -CompressionLevel Optimal
+
+      - name: Voice round trip, after zipping so test downloads stay out of the zip (speak -> listen -> wake word), English and Urdu
         shell: pwsh
         continue-on-error: true
         run: |
           & Jarvis/runtime/python.exe tests/voice_roundtrip.py Jarvis/app
-
-      - name: Zip
-        shell: pwsh
-        run: Compress-Archive -Path Jarvis -DestinationPath Jarvis.zip -CompressionLevel Optimal
 
       - name: Publish to the download release
         shell: pwsh

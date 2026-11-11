@@ -24,6 +24,9 @@ URDU_LIKE = {"ur", "hi", "ar", "fa", "pa", "ps", "sd"}
 def _load(size):
     import os
     threads = max(2, (os.cpu_count() or 4) - 1)
+    bundled = MODEL_DIR / f"faster-whisper-{size}"  # shipped inside the Jarvis zip: no download needed
+    if (bundled / "model.bin").exists():
+        return WhisperModel(str(bundled), device="cpu", compute_type="int8", cpu_threads=threads)
     return WhisperModel(size, device="cpu", compute_type="int8", download_root=str(MODEL_DIR), cpu_threads=threads)
 
 
@@ -39,6 +42,7 @@ class JarvisEars:
         self.model = _load(model_size)
         self._urdu_name = urdu_model if (urdu_model and urdu_model != model_size and self.language != "en") else None
         self._urdu = None
+        self.hint = None  # words Jarvis expects to hear (document types, the owner's customer names)
         if self.language == "ur" and self._urdu_name:
             self._urdu = _load(self._urdu_name)
 
@@ -58,10 +62,12 @@ class JarvisEars:
         import numpy as np
 
         samples = audio.astype(np.float32) / 32768.0
+        hint = getattr(self, "hint", None)
+        en_prompt = prompt or hint  # helps Whisper hear "invoices of Khan Traders" instead of look-alike words
         if self.language == "ur":
             segments, _ = self._run(self.urdu or self.model, samples, "ur", prompt)
         else:
-            segments, info = self._run(self.model, samples, self.language, prompt)
+            segments, info = self._run(self.model, samples, self.language, en_prompt)
             if self.language is None:
                 # Decide English vs Urdu before decoding (segments are decoded lazily, so this is cheap).
                 # Whisper often labels spoken Urdu as Hindi/Arabic/Persian: count all of those as Urdu.
@@ -71,7 +77,7 @@ class JarvisEars:
                 if ur > en:
                     segments, _ = self._run(self.urdu or self.model, samples, "ur", prompt)
                 elif info.language != "en":
-                    segments, _ = self._run(self.model, samples, "en", prompt)
+                    segments, _ = self._run(self.model, samples, "en", en_prompt)
         return " ".join(s.text.strip() for s in segments).strip()
 
     def warm_up(self):

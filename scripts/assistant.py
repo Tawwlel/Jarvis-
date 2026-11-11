@@ -123,10 +123,20 @@ class Assistant:
         if command and clip is not None and self.cfg.get("language", "auto") != "en":
             # the wake model only knows English: hear the command again with the Urdu-capable model
             from wake import match_wake
+            self._hint()
             full = self.ears.transcribe_array(clip)
             again = match_wake(full, self.names)
             command = again if again else full
         self.triggers.put({"text": command, "silent": False})
+
+    def _hint(self):
+        """Tell the listener which words to expect: document types and this owner's customer names."""
+        try:
+            if hasattr(self.ears, "hint") and self.cfg.get("tools_enabled", {}).get("documents", True):
+                import docsearch
+                self.ears.hint = docsearch.vocabulary()
+        except Exception:
+            pass
 
     def submit_text(self, text: str, speak: bool = False):
         """Typed message from the chat window. Replies are silent unless asked."""
@@ -168,6 +178,7 @@ class Assistant:
         self.bridge.state("working")
         if a is None:
             return False
+        self._hint()
         t = self.ears.transcribe_array(a)
         print("[confirm]", t)
         return bool(YES.search(t)) and not NO.search(t)
@@ -199,6 +210,7 @@ class Assistant:
             return ""
         self.bridge.state("thinking")
         t0 = time.time()
+        self._hint()
         text = self.ears.transcribe_array(a)
         print(f"[timing] listening->text {time.time() - t0:.1f}s ({len(a) / 16000:.1f}s of speech)")
         print("You:", text)

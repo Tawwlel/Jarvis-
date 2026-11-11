@@ -644,6 +644,31 @@ def _vectors():
         _vec_lock.release()
 
 
+_vocab = {"t": 0.0, "text": ""}
+
+
+def vocabulary(max_names=25) -> str:
+    """A short 'expect to hear' line for the speech recogniser: document words plus the owner's own customer
+    names taken from the indexed documents. Refreshed every 10 minutes."""
+    if time.time() - _vocab["t"] < 600 and _vocab["text"]:
+        return _vocab["text"]
+    from collections import Counter
+    names = Counter()
+    try:
+        db = _db()
+        for (f,) in db.execute("SELECT fields FROM docs WHERE fields != ''").fetchall():
+            n = (json.loads(f).get("partner_name") or "").strip()
+            if n and n.isascii() and 2 < len(n) < 40:
+                names[n] += 1
+        db.close()
+    except Exception:
+        pass
+    text = ("Jarvis. Sales invoices, purchase invoices, quotations, receipts, delivery challans, agreements, "
+            "WhatsApp, computer, folder." + (" " + ", ".join(n for n, _ in names.most_common(max_names)) + "." if names else ""))
+    _vocab.update(t=time.time(), text=text)
+    return text
+
+
 def _wa_ready() -> bool:
     return WA_DIR.exists() and any(WA_DIR.iterdir())
 

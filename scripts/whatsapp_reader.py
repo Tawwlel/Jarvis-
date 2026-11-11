@@ -40,6 +40,25 @@ def _safe_file(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", name).strip(" .")[:150] or f"file_{int(time.time())}"
 
 
+def _browser_ready():
+    """The zip carries its own browser in Jarvis/browsers; other installs fetch it once on first use."""
+    import os
+    import subprocess
+    import sys
+    bundled = Path(__file__).parent.parent.parent / "browsers"
+    if bundled.is_dir():
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(bundled))
+        return
+    mark = DATA / ".browser_ok"
+    if not mark.exists():
+        flags = 0x08000000 if sys.platform == "win32" else 0
+        r = subprocess.run([sys.executable.replace("pythonw", "python"), "-m", "playwright", "install", "chromium"],
+                           creationflags=flags, timeout=900)
+        if r.returncode == 0:
+            DATA.mkdir(parents=True, exist_ok=True)
+            mark.write_text("ok")
+
+
 def _launch(p, headless: bool):
     return p.chromium.launch_persistent_context(
         str(PROFILE), headless=headless, accept_downloads=True, viewport={"width": 1280, "height": 900},
@@ -51,6 +70,7 @@ def link(timeout=300) -> str:
     """Opens WhatsApp Web visibly so the owner can scan the QR code once."""
     from playwright.sync_api import sync_playwright
     PROFILE.mkdir(parents=True, exist_ok=True)
+    _browser_ready()  # before Playwright starts: it reads the browser location at start-up
     with sync_playwright() as p:
         ctx = _launch(p, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -149,6 +169,7 @@ def _sync(chats, per_chat, chat_limit) -> dict:
         return {"error": "not linked"}
     WA_DIR.mkdir(parents=True, exist_ok=True)
     result = {}
+    _browser_ready()
     with sync_playwright() as p:
         ctx = _launch(p, headless=True)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()

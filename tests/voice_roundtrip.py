@@ -42,8 +42,19 @@ ears = JarvisEars("base", language=None, urdu_model="small")
 t = time.time()
 heard = ears.transcribe_array(load16k(wav))
 t_stt = time.time() - t
-check("English voice is heard correctly", "sales invoices" in heard.lower() and "khan" in heard.lower(),
+print("INFO without the word hint, heard:", repr(heard))
+ears.hint = ("Jarvis. Sales invoices, purchase invoices, quotations, receipts, delivery challans, agreements, "
+             "WhatsApp, computer, folder. Khan Traders, Bilal Steel Mills, Ali Enterprises, Noor Textiles.")
+heard = ears.transcribe_array(load16k(wav))
+check("English voice is heard correctly (with the word hint Jarvis builds from your documents)",
+      "sales invoices" in heard.lower() and "khan traders" in heard.lower(),
       f"heard: {heard!r}  (speak {t_tts:.1f}s, listen {t_stt:.1f}s)")
+wav_b = JarvisVoice().speak("Find the quotation for Bilal Steel Mills on WhatsApp.", "amy", out_path=tmp + "/en_b.wav")
+hb = ears.transcribe_array(load16k(wav_b))
+check("second English command", "quotation" in hb.lower() and "bilal" in hb.lower() and "whatsapp" in hb.lower().replace(" ", ""), f"heard: {hb!r}")
+wav_c = JarvisVoice().speak("Please remind me to call my mother at five.", "amy", out_path=tmp + "/en_c.wav")
+hc = ears.transcribe_array(load16k(wav_c))
+check("the hint does not put invoice words into unrelated speech", "invoice" not in hc.lower() and "mother" in hc.lower(), f"heard: {hc!r}")
 cmd = match_wake(heard, ["Jarvis"])
 check("wake word recognised, command extracted", cmd is not None and "invoices" in cmd, f"command: {cmd!r}")
 wake_ears = JarvisEars("tiny.en")

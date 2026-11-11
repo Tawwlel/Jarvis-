@@ -1,0 +1,14 @@
+<html><body>
+<div id="pane-side">
+ <div role="listitem"><span title="Talal Jazz" onclick="show('t')">Talal Jazz</span></div>
+ <div role="listitem"><span title="O'Brien &quot;Co&quot;" onclick="show('o')">O'Brien "Co"</span></div>
+</div>
+<div id="main"></div>
+<script>
+const chats={t:[["Sales Invoice INV-9001 Khan Traders.pdf"],["Quotation QT-9003 Bilal Steel.pdf"]],o:[["../../evil name.pdf","Payment Receipt RCPT-9004 Khan Traders.pdf"]]};
+function show(c){const m=document.getElementById('main');m.innerHTML='';
+ chats[c].forEach((d,i)=>{const row=document.createElement('div');row.setAttribute('data-id',c+i);
+  const a=document.createElement('a');a.href=(d[1]||d[0]).replace('../../','');a.download=d[0];
+  const s=document.createElement('span');s.title=d[0];s.textContent=d[0];a.appendChild(s);row.appendChild(a);m.appendChild(row);});
+ const t=document.createElement('div');t.setAttribute('data-id',c+'txt');t.textContent='hello';m.appendChild(t);}
+</script></body></html>
