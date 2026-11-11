@@ -97,6 +97,12 @@ def migrate_legacy_key(store):
 def main():
     if sys.stdout is None:  # launched without a console (pythonw): keep a log instead
         sys.stdout = sys.stderr = open(ROOT / "jarvis.log", "a", buffering=1, encoding="utf-8")
+    else:  # a Windows console can't print Urdu by default - never crash on it
+        for s in (sys.stdout, sys.stderr):
+            try:
+                s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis by Apricot Digital")

@@ -4,6 +4,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 app = Path(sys.argv[1]).resolve()  # Jarvis/app
 sys.path.insert(0, str(app / "scripts"))
 fx = Path(__file__).parent / "fixtures"
