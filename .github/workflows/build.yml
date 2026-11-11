@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["requirements.txt", "build/**", ".github/workflows/build.yml", "assets/**"]
+    paths: ["requirements.txt", "build/**", ".github/workflows/build.yml", "assets/**", "tests/windows_smoke.py"]
 
 permissions:
   contents: write
@@ -62,6 +62,12 @@ jobs:
           python -c "from PIL import Image; Image.open('assets/logo.png').convert('RGBA').save('logo.ico', sizes=[(256,256),(64,64),(32,32)])"
           pyinstaller --onefile --noconsole --name Jarvis --icon logo.ico build/launcher.py
           Copy-Item dist/Jarvis.exe Jarvis/Jarvis.exe
+
+      - name: Smoke test on Windows
+        shell: pwsh
+        run: |
+          & Jarvis/runtime/python.exe tests/windows_smoke.py Jarvis/app
+          if ($LASTEXITCODE -ne 0) { throw "smoke test failed" }
 
       - name: Zip
         shell: pwsh
