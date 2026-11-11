@@ -64,6 +64,10 @@ ki ka ke ko se mein main mai me aur bhi sari saari sara sare saare sab dikhao di
 mera meri mere hamara hamari wali wala wale hai hain tha thi thy zara yaar bhai jo jis kis kya kahan
  اینڈ اور بھی مجھے میرا میری میرے ہمارا ہماری ہے ہیں تھا تھی جو جس کس کیا کہاں ذرا
  کا کی کے سے میں پر کو کلائنٹ تمام سب دکھاؤ دکھائیں تلاش ڈھونڈو ڈھونڈیں فائل فائلیں واٹس ایپ کمپیوٹر والی والے""".split())
+STOP |= set("""nikalo nikal nikaalo nikaal dikha dikhao dikhaein dikhayen batao bata sunao kul kitni kitna kitne hui hua huwa hue
+ki ka ke ko se par pe mein main wali wala wale ne jo thi tha thay woh wo yeh ye aur bhi saari sari sab tamam chahiye chahye
+do dedo de karo kar kardo ho hain hai ka total batana dhoondo dhundo dhoond talash kholo khol bhejo jama daal
+mujhe mujhay hamari hamara apni apna apne unki unka iska iski uska uski zara please plz""".split())
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
           "november", "december"]
 UR_MONTHS = ["جنوری", "فروری", "مارچ", "اپریل", "مئی", "جون", "جولائی", "اگست", "ستمبر", "اکتوبر", "نومبر", "دسمبر"]
@@ -330,10 +334,26 @@ def _relative_dates(q: str) -> str:
     def mon(d):
         return f" {MONTHS[d.month - 1]} {d.year} "
     first = today.replace(day=1)
-    rules = [(r"\b(this|current) month\b|اس مہینے", mon(today)),
-             (r"\b(last|previous) month\b|پچھلے مہینے", mon(first - dt.timedelta(days=1))),
-             (r"\b(this|current) year\b|اس سال", f" {today.year} "),
-             (r"\b(last|previous) year\b|پچھلے سال", f" {today.year - 1} ")]
+    def rng(a, b):  # an exact day range, picked up by parse_filters
+        return f" zzrange {a:%Y%m%d} {b:%Y%m%d} "
+    monday = today - dt.timedelta(days=today.weekday())
+    day = dt.timedelta(days=1)
+    m = re.search(r"\b(?:last|past|pichh?le|pichlay|guzishta)\s+(\d{1,3})\s+(?:days?|din|dino+n?)\b", q)
+    if m:
+        q = q[:m.start()] + rng(today - int(m.group(1)) * day, today) + q[m.end():]
+    rules = [(r"\b(this|current) month\b|\bi[sz]+ (mahine|maheene|mahinay|month)\b|اس مہینے", mon(today)),
+             (r"\b(last|previous) month\b|\b(pichh?le|pichlay|guzishta|last) (mahine|maheene|mahinay)\b|پچھلے مہینے",
+              mon(first - dt.timedelta(days=1))),
+             (r"\b(this|current) year\b|\bi[sz]+ saal\b|اس سال", f" {today.year} "),
+             (r"\b(last|previous) year\b|\b(pichh?le|pichlay|guzishta) saal\b|پچھلے سال", f" {today.year - 1} "),
+             (r"\b(this|current) week\b|\bi[sz]+ (hafte|haftay|week)\b|اس ہفتے", rng(monday, today)),
+             (r"\b(last|previous) week\b|\b(pichh?le|pichlay|guzishta|last) (hafte|haftay)\b|پچھلے ہفتے",
+              rng(monday - 7 * day, monday - day)),
+             (r"\btoday'?s?\b|\baaj\b|آج", rng(today, today)),
+             (r"\byesterday'?s?\b|\bkal\b|گزشتہ کل", rng(today - day, today - day)),
+             (r"\bsab ?se (purani|purana|purane|pehli|pehla)\b|سب سے پرانی|سب سے پرانا", " oldest "),
+             (r"\bsab ?se (nayi|naya|naye|nai|taaza|taza)\b|\b(aakh?ri|akh?ri|taaza|taza tareen)\b|سب سے نئی|سب سے نیا|آخری",
+              " latest ")]
     for pat, rep in rules:
         q = re.sub(pat, rep, q)
     return q
@@ -343,6 +363,9 @@ MULT = {"k": 1e3, "thousand": 1e3, "hazar": 1e3, "hazaar": 1e3, "ہزار": 1e3,
         "lakhs": 1e5, "لاکھ": 1e5, "m": 1e6, "million": 1e6, "mn": 1e6, "crore": 1e7, "کروڑ": 1e7}
 _NUM = r"(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|hazaa?r|ہزار|lakhs?|lac|لاکھ|million|mn|m|crore|کروڑ)?\b"
 AMOUNT_RULES = [
+    # Urdu word order: the number comes first ("2 lakh se zyada", "50 hazar se kam")
+    (rf"{_NUM}\s*(?:rs\.?|pkr|rupees|rupay|روپے)?\s*(?:se|say)\s+(?:zyada|ziada|zyaada|upar|oopar|barh kar)\b|{_NUM}\s*(?:روپے)?\s*سے زیادہ", "min"),
+    (rf"{_NUM}\s*(?:rs\.?|pkr|rupees|rupay|روپے)?\s*(?:se|say)\s+(?:kam|neeche|niche)\b|{_NUM}\s*(?:روپے)?\s*سے کم", "max"),
     (rf"\b(?:above|over|more than|greater than|at least|minimum|min|exceeding|bigger than|se zyada|سے زیادہ)\s+(?:rs\.?\s*|pkr\s*)?{_NUM}", "min"),
     (rf"\b(?:below|under|less than|at most|maximum|max|upto|up to|smaller than|se kam|سے کم)\s+(?:rs\.?\s*|pkr\s*)?{_NUM}", "max"),
 ]
@@ -353,9 +376,16 @@ def parse_filters(q: str):
     f = {}
     for pat, kind in AMOUNT_RULES:
         m = re.search(pat, q)
-        if m:
-            f[kind] = float(m.group(1).replace(",", "")) * MULT.get(m.group(2) or "", 1)
-            q = q[:m.start()] + " " + q[m.end():]
+        if m and kind not in f:
+            g = [x for x in m.groups()]
+            num, unit = (g[0], g[1]) if g[0] else (g[2], g[3]) if len(g) > 2 else (None, None)
+            if num:
+                f[kind] = float(num.replace(",", "")) * MULT.get(unit or "", 1)
+                q = q[:m.start()] + " " + q[m.end():]
+    m = re.search(r"\bzzrange (\d{8}) (\d{8})\b", q)
+    if m:
+        f["from"], f["to"] = m.group(1), m.group(2)
+        q = q[:m.start()] + " " + q[m.end():]
     m = re.search(r"\b(latest|newest|most recent|recent|last|oldest|first|earliest)\b(?:\s+(\d{1,2})\b)?", q)
     if m:
         f["order"] = "old" if m.group(1) in ("oldest", "first", "earliest") else "new"
@@ -376,6 +406,10 @@ def parse(query: str):
             if re.search(rf"(?<!\w){re.escape(w)}(?!\w)", q):
                 doc_type = doc_type or typ
                 q = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", q)
+    if not doc_type and re.search(r"\bsales\b", q):  # "kul sales kitni hai" means the sales invoices
+        doc_type = "sales invoice"
+    if doc_type == "sales invoice":
+        q = re.sub(r"\bsales\b", " ", q)
     q = re.sub(r"(?<=\d),(?=\d{3})", "", q)  # 284,500 -> 284500
     # "may" is only the month when it reads like a date ("in may", "may 2026")
     q = re.sub(r"\b(in|of|from|during)\s+may\b", r"\1 maymonth", q)
@@ -508,6 +542,10 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
             except (TypeError, ValueError):
                 continue
             if val <= filters.get("min", -1) or val >= filters.get("max", float("inf")):
+                continue
+        if "from" in filters:
+            day = (doc_date or "").replace("-", "")
+            if not day or not (filters["from"] <= day <= filters["to"]):
                 continue
         head, hay = _hay(chat, name, text, doc_date)
         cands.append((set(re.findall(r"[\w']+", hay)), head, hay,
