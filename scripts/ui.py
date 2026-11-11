@@ -786,7 +786,8 @@ def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_s
                   ("Check WhatsApp for new files", lambda: on_ask("tool:whatsapp_sync")),
                   ("Import old WhatsApp files (iPhone backup)", lambda: on_ask("tool:iphone_whatsapp_import")),
                   ("Check my email", lambda: on_ask("Give me my email digest.")),
-                  ("Back up Jarvis now", lambda: on_ask("tool:backup_now"))]
+                  ("Back up Jarvis now", lambda: on_ask("tool:backup_now")),
+                  ("Help me set up Jarvis", lambda: on_ask("tool:setup_help"))]
     if on_selftest:
         items.append(("Run document test", on_selftest))
     if on_speedtest:
