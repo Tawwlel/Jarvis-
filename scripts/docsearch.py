@@ -415,7 +415,80 @@ def _hay(chat, name, text, doc_date):
     return head, head + " " + body + _date_words(doc_date)
 
 
+def _phon(s: str) -> str:
+    """Rough sound of a word or name: 'Khan Traders' and a misheard 'contrators' come out nearly the same."""
+    s = re.sub(r"[^a-z]", "", s.lower())
+    for a, b in (("kh", "k"), ("ph", "f"), ("ck", "k"), ("c", "k"), ("q", "k"), ("z", "s"), ("x", "ks"), ("v", "w")):
+        s = s.replace(a, b)
+    s = re.sub(r"[aeiouyh]", "", s)
+    return re.sub(r"(.)\1+", r"\1", s)
+
+
+def _known_names() -> list[str]:
+    names = set()
+    try:
+        db = _db()
+        for f, chat in db.execute("SELECT fields, chat FROM docs").fetchall():
+            n = (json.loads(f).get("partner_name") if f else "") or ""
+            for x in (n, chat or ""):
+                x = x.strip()
+                if x.isascii() and 2 < len(x) < 40 and re.search(r"[a-zA-Z]{3}", x):
+                    names.add(x)
+        db.close()
+    except Exception:
+        pass
+    return sorted(names)
+
+
+def _repair(query: str):
+    """Speech recognition mishears names ('contrators' for 'Khan Traders'). If part of the request sounds like a
+    customer name we know from the documents, swap the real name in. Returns (new_query, note) or (query, '')."""
+    words = re.findall(r"[A-Za-z']+", query)
+    if not words:
+        return query, ""
+    best = None
+    for name in _known_names():
+        nk = _phon(name)
+        if len(nk) < 3:
+            continue
+        nwords = [w.lower() for w in name.split()]
+        for size in range(1, min(3, len(words)) + 1):
+            for i in range(len(words) - size + 1):
+                win = words[i:i + size]
+                if [w.lower() for w in win] == nwords or win[0].lower() in STOP or win[-1].lower() in STOP:
+                    continue
+                wk = _phon("".join(win))
+                if len(wk) < 3 or wk[0] != nk[0]:
+                    continue
+                ratio = difflib.SequenceMatcher(None, wk, nk).ratio()
+                if ratio >= 0.84 and (best is None or ratio > best[0] or (ratio == best[0] and size > best[3])):
+                    best = (ratio, " ".join(win), name, size)
+    if not best:
+        return query, ""
+    _, heard, name, _ = best
+    return re.sub(re.escape(heard), name, query, count=1, flags=re.I), f"Heard '{heard}' - taken as '{name}'."
+
+
 def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
+    """Exact word search first; if that finds nothing sure, try a misheard-name repair, then search by meaning."""
+    query = re.sub(r"ان\s+وائس", "انوائس", query)  # speech-to-text often splits this Urdu word
+    r = _search(query, source, doc_type, limit)
+    if r["mode"] != "close" and r["items"]:
+        return r
+    q2, note = _repair(query)
+    if note:
+        r2 = _search(q2, source, doc_type, limit)
+        if r2["mode"] != "close" and r2["items"]:
+            r2["heard_as"] = note
+            return r2
+    if r["terms"]:
+        by_meaning = _meaning(query, source)
+        if by_meaning:
+            r.update(mode="meaning", items=by_meaning[:limit], total=len(by_meaning))
+    return r
+
+
+def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
     qtype, terms = parse(query)
     _, filters = parse_filters(" " + _relative_dates(_norm(query)) + " ")
     doc_type = doc_type or qtype
@@ -531,10 +604,6 @@ def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200
         it["also_in"] = [it["chat"]] if it["chat"] else []
         seen[k] = it
         items.append(it)
-    if (mode == "close" or not items) and terms:
-        by_meaning = _meaning(query, source)
-        if by_meaning:
-            mode, items = "meaning", by_meaning
     return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(items),
             "items": items[:limit]}
 
@@ -592,6 +661,8 @@ def _fmt(r: dict, n=12) -> str:
             "close": "No exact match. These are the closest - ask the user if one of them is right.",
             "meaning": "No file has those exact words; these match the MEANING - tell the user they're the likely "
                        "ones and ask if they're right."}[r["mode"]]
+    if r.get("heard_as"):
+        head = r["heard_as"] + " Tell the user this in one short phrase. " + head
     lines = [f"{i}. {it['name']}" + (f" (chat: {', '.join(it.get('also_in') or [it['chat']])})" if it["chat"] else "")
              + (f" [{it['type']}]" if it["type"] else "") + (f" total {it['amount']}" if it["amount"] else "")
              + f" - {_pretty_date(it.get('date'), it['mtime'])}"

@@ -46,9 +46,26 @@ print("INFO without the word hint, heard:", repr(heard))
 ears.hint = ("Jarvis. Sales invoices, purchase invoices, quotations, receipts, delivery challans, agreements, "
              "WhatsApp, computer, folder. Khan Traders, Bilal Steel Mills, Ali Enterprises, Noor Textiles.")
 heard = ears.transcribe_array(load16k(wav))
-check("English voice is heard correctly (with the word hint Jarvis builds from your documents)",
-      "sales invoices" in heard.lower() and "khan traders" in heard.lower(),
+check("English command: document words heard correctly (with the word hint)", "sales invoices" in heard.lower(),
       f"heard: {heard!r}  (speak {t_tts:.1f}s, listen {t_stt:.1f}s)")
+# the whole chain: spoken words -> text -> the document finder returns the right file
+import shutil  # noqa
+import docsearch, tools  # noqa
+fx = Path(__file__).parent / "fixtures"
+pc = Path(tmp) / "pc"
+pc.mkdir()
+for f in fx.iterdir():
+    if f.is_file():
+        shutil.copy(f, pc)
+docsearch.DATA = Path(tmp) / "data"
+docsearch.WA_DIR = docsearch.DATA / "whatsapp"
+cfg = {"file_roots": [str(pc)]}
+tools.CTX["cfg"] = cfg
+docsearch.reindex(cfg)
+r = docsearch.search(match_wake(heard, ["Jarvis"]) or heard, "computer")
+check("spoken English command -> finder returns the Khan Traders invoice",
+      r["mode"] != "close" and any("INV-9001" in i["name"] for i in r["items"]),
+      f"{r['mode']} {[i['name'] for i in r['items']]} {r.get('heard_as', '')}")
 wav_b = JarvisVoice().speak("Find the quotation for Bilal Steel Mills on WhatsApp.", "amy", out_path=tmp + "/en_b.wav")
 hb = ears.transcribe_array(load16k(wav_b))
 check("second English command", "quotation" in hb.lower() and "bilal" in hb.lower() and "whatsapp" in hb.lower().replace(" ", ""), f"heard: {hb!r}")
@@ -75,6 +92,9 @@ try:
     t_stt = time.time() - t
     check("Urdu voice is produced and heard as Urdu", lang.is_urdu(heard) and ("انوائس" in heard or "خان" in heard),
           f"heard: {heard!r}  (speak {t_tts:.1f}s, listen {t_stt:.1f}s incl. first load of the Urdu model)")
+    r = docsearch.search(heard, "computer")
+    check("spoken Urdu command -> finder returns the Khan Traders invoice",
+          r["mode"] != "close" and any("INV-9001" in i["name"] for i in r["items"]), f"{r['mode']} {[i['name'] for i in r['items']]}")
     t = time.time()
     heard = ears.transcribe_array(load16k(wav))
     check("Urdu second time (model already loaded)", lang.is_urdu(heard), f"listen {time.time() - t:.1f}s")
