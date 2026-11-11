@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["requirements.txt", "build/**", ".github/workflows/build.yml", "assets/**", "tests/windows_smoke.py"]
+    paths: ["requirements.txt", "build/**", ".github/workflows/build.yml", "assets/**", "tests/windows_smoke.py", "tests/voice_roundtrip.py"]
 
 permissions:
   contents: write
@@ -54,6 +54,16 @@ jobs:
           gh release download models -p "e5-*" -D Jarvis/app/data/models
           gh release download models -p "*.traineddata" -D Jarvis/app/data/tessdata
 
+      - name: Default voice + listening models (bundled, so the first start is instant)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force Jarvis/app/voices | Out-Null
+          & Jarvis/runtime/python.exe -c "from pathlib import Path; from piper.download_voices import download_voice; download_voice('en_US-amy-medium', Path('Jarvis/app/voices'))"
+          & Jarvis/runtime/python.exe -c "from faster_whisper import WhisperModel; [WhisperModel(m, device='cpu', compute_type='int8', download_root='Jarvis/app/whisper_model') for m in ('tiny.en', 'base')]"
+          if ($LASTEXITCODE -ne 0) { throw "model download failed" }
+          Get-ChildItem Jarvis/app/voices, Jarvis/app/whisper_model
+
       - name: Jarvis.exe launcher
         shell: pwsh
         run: |
@@ -68,6 +78,12 @@ jobs:
         run: |
           & Jarvis/runtime/python.exe tests/windows_smoke.py Jarvis/app
           if ($LASTEXITCODE -ne 0) { throw "smoke test failed" }
+
+      - name: Voice round trip (speak -> listen -> wake word), English and Urdu
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          & Jarvis/runtime/python.exe tests/voice_roundtrip.py Jarvis/app
 
       - name: Zip
         shell: pwsh

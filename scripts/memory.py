@@ -121,8 +121,13 @@ class Memory:
         return D(row[0]) if row else None
 
     def notes_search(self, query: str = "", days: int = 14) -> str:
+        """Matches the note's topic OR its text (text is stored encrypted, so it is matched after reading)."""
         since = time.time() - days * 86400
-        rows = self.db.execute(
-            "SELECT meeting, kind, text FROM notes WHERE ts>=? AND meeting LIKE ? ORDER BY ts",
-            (since, f"%{query}%")).fetchall()
-        return "\n".join(f"[{m} | {k}] {D(t)}" for m, k, t in rows)
+        rows = self.db.execute("SELECT meeting, kind, text FROM notes WHERE ts>=? ORDER BY ts", (since,)).fetchall()
+        q = (query or "").lower().strip()
+        out = []
+        for m, k, t in rows:
+            text = D(t)
+            if not q or q in m.lower() or q in text.lower() or all(w in (m + " " + text).lower() for w in q.split()):
+                out.append(f"[{m} | {k}] {text}")
+        return "\n".join(out)

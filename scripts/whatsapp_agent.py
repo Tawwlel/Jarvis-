@@ -95,6 +95,19 @@ class WhatsAppAgent(threading.Thread):
             time.sleep(INTERVAL_MIN * 60)
 
 
+QUESTION_WORDS = set("""how much many did does do was were is are has have had what when who whom which where why
+pay paid payment owe owes owed due send sent give gave received receive tell say says written mentioned about
+kitna kitni kitne kab kya kis kisne kaun kahan kyun diya diye di liya liye mila mile bheja bheji likha batao bata
+total amount date number""".split())
+
+
+def _topic(question: str) -> str:
+    """'How much did Khan Traders pay?' -> 'Khan Traders': search on who/what it is about, not the question words."""
+    import re
+    words = [w for w in re.findall(r"[\w\-/]+", question) if w.lower() not in QUESTION_WORDS]
+    return " ".join(words) or question
+
+
 @tool("whatsapp_docs_ask",
       "Answer a question about what is written INSIDE WhatsApp documents (amounts, dates, items, who paid, totals, "
       "what a quotation says). Returns the matching documents' text with file and chat names; answer only from it "
@@ -104,7 +117,11 @@ def whatsapp_docs_ask(question):
     cfg = CTX.get("cfg", {})
     with _lock:
         docsearch.reindex(cfg, include_computer=False, include_whatsapp=True)
-    r = docsearch.search(question, "whatsapp", limit=5)
+    r = docsearch.search(_topic(question), "whatsapp", limit=5)
+    if r["mode"] == "close" or not r["items"]:  # the question's own wording may still match better
+        r2 = docsearch.search(question, "whatsapp", limit=5)
+        if r2["items"] and (not r["items"] or r2["mode"] != "close"):
+            r = r2
     if not r["items"]:
         return "No WhatsApp documents match that."
     rows = {p: txt for p, *_rest, txt in _wa_rows()}

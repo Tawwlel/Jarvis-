@@ -43,9 +43,11 @@ TYPES = {  # canonical type -> words that mean it (checked longest first)
                   "pro forma", "کوٹیشن", "کوٹیشنز"],
     "receipt": ["receipt", "receipts", "payment receipt", "payment slip", "voucher", "رسید", "رسیدیں"],
     "invoice": ["invoice", "invoices", "inv", "bill", "bills", "انوائس", "انوائسز", "بل"],
+    "agreement": ["agreement", "agreements", "contract", "contracts", "rent deed", "معاہدہ", "معاہدے", "کرایہ نامہ",
+                  "اقرار نامہ"],
 }
 TYPE_ORDER = ["sales invoice", "purchase invoice", "credit note", "delivery challan", "purchase order",
-              "quotation", "receipt", "invoice"]
+              "quotation", "receipt", "invoice", "agreement"]
 NOT_DOCS = re.compile(r"curriculum vitae|\bresume\b|\bcv\b|bank statement|account statement|price list|"
                       r"meeting notes|minutes of meeting|\bagenda\b", re.I)
 STOP = set("""a an the of for from to by with in on at and or me my find show get give all every any
@@ -172,6 +174,9 @@ def classify(name: str, text: str) -> str:
         return "register"
     def first(hay):
         return next((typ for typ in TYPE_ORDER if _has(TYPES[typ], hay)), "")
+    title = " ".join(text.lower().split()[:6])
+    if _has(TYPES["agreement"], fname) or _has(TYPES["agreement"], title):
+        return "agreement"  # an agreement that mentions "invoice date" in its terms is not an invoice
     by_name, by_head = first(fname), first(head)
     # a specific type in the file name wins; a bare "inv"/"invoice" name defers to the heading
     if by_name and by_name != "invoice":

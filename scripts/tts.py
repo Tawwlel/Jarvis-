@@ -45,6 +45,14 @@ class JarvisVoice:
             )
         if voice_name not in self._loaded:
             model_path = VOICES_DIR / VOICE_FILES[voice_name]
+            if not model_path.exists():  # first use of this voice: fetch it once (about 60 MB)
+                try:
+                    from piper.download_voices import download_voice
+                    VOICES_DIR.mkdir(exist_ok=True)
+                    print(f"[voice] downloading '{voice_name}'...")
+                    download_voice(VOICE_FILES[voice_name].removesuffix(".onnx"), VOICES_DIR)
+                except Exception as e:
+                    print("[voice] download failed:", e)
             if not model_path.exists():
                 raise FileNotFoundError(
                     f"Voice model not found at {model_path}.\n"

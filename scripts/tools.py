@@ -72,6 +72,9 @@ def remember_fact(key, value):
     ["kind", "title"],
 )
 def show_visual(kind, title, labels=None, values=None, body=None):
+    import importlib.util
+    if importlib.util.find_spec("webview") is None:  # never claim something was shown when it wasn't
+        return "The on-screen visual window isn't installed on this computer, so explain it in words instead."
     from visual import show
     show(kind, title, labels, values, body)
     return "Displayed."
