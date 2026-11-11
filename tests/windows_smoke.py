@@ -30,7 +30,8 @@ tmp = Path(tempfile.mkdtemp())
 pc = tmp / "pc"
 pc.mkdir()
 for f in fx.iterdir():
-    shutil.copy(f, pc)
+    if f.is_file():
+        shutil.copy(f, pc)
 docsearch.DATA = tmp / "data"
 docsearch.WA_DIR = tmp / "data" / "whatsapp"
 cfg = {"file_roots": [str(pc)]}
