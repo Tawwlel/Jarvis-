@@ -27,3 +27,4 @@ tokenizers
 invoice2data
 aiohttp
 qrcode[pil]
+xlrd

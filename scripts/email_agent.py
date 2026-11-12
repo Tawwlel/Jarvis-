@@ -156,7 +156,8 @@ def fetch(cfg, hours: float, limit=40) -> list[dict]:
             pass
 
 
-DOC_EXT = (".pdf", ".docx", ".xlsx", ".jpg", ".jpeg", ".png", ".csv")
+DOC_EXT = (".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".odt", ".zip", ".rar",
+           ".jpg", ".jpeg", ".png")
 ATT_STATE = DATA / "email_docs.json"
 MAX_ATT_MB = 25
 

@@ -15,6 +15,7 @@ Everything stays on this computer. The index lives in data/docs.db.
 import difflib
 import json
 import re
+import sys
 import shutil
 import sqlite3
 import threading
@@ -27,7 +28,9 @@ DATA = Path(__file__).parent.parent / "data"
 WA_DIR = DATA / "whatsapp"
 EMAIL_DIR = DATA / "email_docs"  # attachments saved by the email agent, one folder per sender
 OUT_DIR = Path.home() / "Documents" / "Jarvis Files"
-EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".docx", ".xlsx", ".txt", ".csv"}
+# Every kind of document Jarvis reads, on the computer, in WhatsApp and in email (whatsapp_reader / email_agent import this).
+EXTS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".odt", ".zip", ".rar",
+        ".jpg", ".jpeg", ".png", ".webp", ".heic", ".txt"}
 IMG = {".jpg", ".jpeg", ".png", ".webp"}
 SKIP = {"node_modules", "__pycache__", "venv", ".venv", "AppData", "$RECYCLE.BIN", "Jarvis Files", "site-packages",
         "SAVEDATA", "PPSSPP", "Program Files", "Program Files (x86)", "Windows"}
@@ -153,7 +156,8 @@ def _ocr(img) -> str:
 
 
 PDF_PAGES, PDF_OCR_PAGES = 60, 6  # text of the first 60 pages; up to 6 scanned pages read as pictures
-MAX_MB = {".pdf": 80, ".docx": 40, ".xlsx": 40}
+MAX_MB = {".pdf": 80, ".docx": 40, ".xlsx": 40, ".doc": 40, ".xls": 40, ".pptx": 80, ".ppt": 80, ".odt": 40,
+          ".zip": 150, ".rar": 150}
 IMG_MIN_BYTES, IMG_MAX_BYTES, IMG_MAX_SIDE = 12_000, 40_000_000, 2200
 FILE_SECONDS = 90  # one file that takes longer than this is skipped, never allowed to stall a scan
 
@@ -189,6 +193,96 @@ def extract_text(p: Path) -> str:
     return box.get("t", "")
 
 
+def _zip_xml_text(p: Path, prefixes) -> str:
+    """Text of .pptx slides / .odt content: they are zip files of XML, so no extra library is needed."""
+    import zipfile
+    out = []
+    with zipfile.ZipFile(p) as z:
+        names = sorted(n for n in z.namelist() if n.startswith(prefixes) and n.endswith(".xml"))
+        for n in names[:200]:
+            if z.getinfo(n).file_size > 20_000_000:
+                continue
+            xml = z.read(n).decode("utf-8", "ignore")
+            out.append(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", xml)))
+    return " ".join(out)
+
+
+def _binary_strings(p: Path) -> str:
+    """Old .doc/.ppt (binary): the readable text runs inside the file, good enough to find a document by."""
+    data = p.read_bytes()[:30_000_000]
+    runs = re.findall(rb"[\x20-\x7e\xa0-\xff]{5,}", data) + [r.decode("utf-16le", "ignore").encode()
+                                                          for r in re.findall(rb"(?:[\x20-\x7e]\x00){5,}", data)]
+    txt = " ".join(r.decode("cp1252", "ignore") for r in runs)
+    return re.sub(r"\s+", " ", txt)[:30000]
+
+
+ARCHIVE_DOCS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".odt", ".jpg", ".jpeg", ".png", ".txt"}
+
+
+def _archive_text(p: Path, ext: str) -> str:
+    """A .zip/.rar: its file names plus the text of the documents inside (a few, size-limited, never executed)."""
+    import shutil
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix="jarvis_arc_"))
+    try:
+        names, picked = [], []
+        if ext == ".zip":
+            import zipfile
+            z = zipfile.ZipFile(p)
+            infos = [i for i in z.infolist() if not i.is_dir()]
+            names = [i.filename for i in infos]
+            budget = 200_000_000
+            for i in infos:
+                if len(picked) >= 40 or i.file_size > 40_000_000 or budget - i.file_size < 0 or i.flag_bits & 1:
+                    continue  # too many/too big (zip bombs) or password-protected
+                if Path(i.filename).suffix.lower() in ARCHIVE_DOCS and not _junk(Path(i.filename).name):
+                    budget -= i.file_size
+                    dest = tmp / f"{len(picked)}{Path(i.filename).suffix.lower()}"
+                    with z.open(i) as src, open(dest, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                    picked.append((i.filename, dest))
+        else:
+            names, picked = _rar_members(p, tmp)
+        parts = ["[files: " + ", ".join(names[:200]) + "]"]
+        for fn, dest in picked:
+            t = _extract(dest, dest.suffix.lower())
+            if t.strip():
+                parts.append(f"[{fn}] {t[:4000]}")
+        return "\n".join(parts)[:30000]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _rar_members(p: Path, tmp: Path):
+    """RAR needs an unpacker: the 'rarfile' module with UnRAR, or Windows' own tar (it reads RAR). Names only if neither works."""
+    try:
+        import rarfile
+        r = rarfile.RarFile(str(p))
+        infos = [i for i in r.infolist() if not i.is_dir()]
+        names, picked = [i.filename for i in infos], []
+        for i in infos:
+            if len(picked) < 40 and i.file_size <= 40_000_000 and Path(i.filename).suffix.lower() in ARCHIVE_DOCS:
+                dest = tmp / f"{len(picked)}{Path(i.filename).suffix.lower()}"
+                dest.write_bytes(r.read(i))
+                picked.append((i.filename, dest))
+        return names, picked
+    except Exception:
+        pass
+    import subprocess
+    try:
+        flags = 0x08000000 if sys.platform == "win32" else 0  # no console window
+        lst = subprocess.run(["tar", "-tf", str(p)], capture_output=True, text=True, timeout=60, creationflags=flags)
+        names = [n for n in lst.stdout.splitlines() if n and not n.endswith("/")]
+        subprocess.run(["tar", "-xf", str(p), "-C", str(tmp)], capture_output=True, timeout=120, creationflags=flags)
+        picked = []
+        for f in tmp.rglob("*"):
+            if len(picked) < 40 and f.is_file() and f.suffix.lower() in ARCHIVE_DOCS and f.stat().st_size <= 40_000_000:
+                picked.append((str(f.relative_to(tmp)), f))
+        return names, picked
+    except Exception:
+        return [], []
+
+
 def _extract(p: Path, ext: str) -> str:
     try:
         if ext == ".pdf":
@@ -219,7 +313,26 @@ def _extract(p: Path, ext: str) -> str:
             return _ocr(im)
         if ext == ".docx":
             import docx
-            return " ".join(x.text for x in docx.Document(str(p)).paragraphs)
+            d = docx.Document(str(p))
+            cells = [c.text for t in d.tables for r in t.rows for c in r.cells]  # invoices keep their figures in tables
+            return " ".join([x.text for x in d.paragraphs] + cells)
+        if ext in (".pptx", ".odt"):
+            return _zip_xml_text(p, ("ppt/slides/slide", "ppt/notesSlides/") if ext == ".pptx" else ("content.xml",))
+        if ext in (".doc", ".ppt"):
+            return _binary_strings(p)
+        if ext == ".xls":
+            try:
+                import xlrd
+                wb = xlrd.open_workbook(str(p), on_demand=True)
+                out = []
+                for ws in list(wb.sheets())[:3]:
+                    for r in range(min(ws.nrows, 60)):
+                        out += [str(c) for c in ws.row_values(r) if c not in ("", None)]
+                return " ".join(out)
+            except Exception:
+                return _binary_strings(p)
+        if ext in (".zip", ".rar"):
+            return _archive_text(p, ext)
         if ext == ".xlsx":
             import openpyxl
             wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)

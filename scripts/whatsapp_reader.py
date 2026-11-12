@@ -19,7 +19,8 @@ DATA = Path(__file__).parent.parent / "data"
 WA_DIR = DATA / "whatsapp"
 PROFILE = DATA / "wa_profile"
 WA_URL = "https://web.whatsapp.com/"
-DOC_EXT = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".docx", ".xlsx", ".csv", ".txt")
+DOC_EXT = (".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".odt", ".zip", ".rar",
+           ".jpg", ".jpeg", ".png", ".webp", ".txt")
 
 SEL = {
     "logged_in": "#pane-side",
