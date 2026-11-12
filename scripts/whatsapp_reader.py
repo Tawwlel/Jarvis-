@@ -66,6 +66,18 @@ def _launch(p, headless: bool):
                    "Chrome/124.0 Safari/537.36")
 
 
+def _open(page) -> bool:
+    """Open WhatsApp Web. The page never finishes 'loading' (it keeps connections open), so wait only for the first
+    content and allow a slow connection two tries."""
+    for _ in range(2):
+        try:
+            page.goto(WA_URL, wait_until="domcontentloaded", timeout=90000)
+            return True
+        except Exception as e:
+            print("[whatsapp] open failed:", str(e).splitlines()[0])
+    return False
+
+
 def link(timeout=300) -> str:
     """Opens WhatsApp Web visibly so the owner can scan the QR code once."""
     from playwright.sync_api import sync_playwright
@@ -74,7 +86,9 @@ def link(timeout=300) -> str:
     with sync_playwright() as p:
         ctx = _launch(p, headless=False)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto(WA_URL)
+        if not _open(page):
+            ctx.close()
+            return "I couldn't reach WhatsApp Web. Check the internet connection and try again."
         try:
             page.wait_for_selector(SEL["logged_in"], timeout=timeout * 1000)
             time.sleep(5)  # let the profile save its session
@@ -213,9 +227,11 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
     with sync_playwright() as p:
         ctx = _launch(p, headless=True)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto(WA_URL)
+        if not _open(page):
+            ctx.close()
+            return {"error": "offline"}
         try:
-            page.wait_for_selector(SEL["logged_in"], timeout=60000)
+            page.wait_for_selector(SEL["logged_in"], timeout=90000)
         except Exception:
             ctx.close()
             return {"error": "not linked"}
@@ -288,6 +304,8 @@ def _sync_and_report(names) -> str:
     r = sync(names)
     if "busy" in r:
         return "WhatsApp is already being checked in the background; try the search in a minute."
+    if r.get("error") == "offline":
+        return "I couldn't reach WhatsApp Web right now. Check the internet connection and try again."
     if r.get("error"):
         return "WhatsApp is not linked yet. Say 'link WhatsApp' first."
     total = sum(v for v in r.values() if isinstance(v, int))
