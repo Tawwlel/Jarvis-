@@ -229,7 +229,8 @@ def main():
                 open_chat()
                 if text.startswith("tool:"):
                     tool_name = text[5:]
-                    waits = {"whatsapp_link": "Opening WhatsApp. On your phone: WhatsApp > Settings > Linked devices > "
+                    waits = {"scan_everything": "Starting the scan of your computer and WhatsApp...",
+                             "whatsapp_link": "Opening WhatsApp. On your phone: WhatsApp > Settings > Linked devices > "
                                               "Link a device, then point the phone at the code on the screen.",
                              "whatsapp_sync": "Checking WhatsApp for new files. This can take a minute or two...",
                              "iphone_whatsapp_import": "Looking for an iPhone backup on this laptop...",
@@ -240,6 +241,8 @@ def main():
                         import tools
                         tools.enabled_tools(cfg)  # make sure the tool is registered even before the brain is up
                         tools.CTX.setdefault("cfg", cfg)
+                        tools.CTX.setdefault("notify", lambda t: bridge.chat("assistant", t))
+                        threading.current_thread().inline = True  # this worker may wait: run the job right here
                         bridge.chat("assistant", str(tools.run_tool(tool_name, {})))
                     threading.Thread(target=work, daemon=True).start()
                 elif keep["assistant"]:

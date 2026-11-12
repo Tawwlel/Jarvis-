@@ -49,6 +49,19 @@ def _free_ollama():
 BRIEF = re.compile(r"\b(daily )?(brief|briefing)\b|what'?s (on )?(my )?(day|today)|what do i have today", re.I)
 
 
+def _spoken(msg: str, limit: int = 260) -> str:
+    """What is read aloud: no markdown symbols, and only the first sentences of a long answer (the chat shows all
+    of it). Long replies took 20 seconds to speak."""
+    import re
+    t = re.sub(r"[*#`|>_]+", " ", msg)
+    t = re.sub(r"^\s*\d+\.\s+", "", t, flags=re.M)
+    t = re.sub(r"\s+", " ", t).strip()
+    if len(t) <= limit:
+        return t
+    cut = max(t.rfind(". ", 0, limit), t.rfind("۔", 0, limit), t.rfind("? ", 0, limit), t.rfind("! ", 0, limit))
+    return t[:cut + 1] if cut > 60 else t[:limit].rsplit(" ", 1)[0] + "."
+
+
 class Assistant:
     def __init__(self, cfg: dict, bridge, secrets=None):
         self.cfg, self.bridge = cfg, bridge
@@ -105,7 +118,11 @@ class Assistant:
             import docsearch  # build the document index in the background so the first search is quick
             threading.Thread(target=docsearch.background_index, args=(self.cfg,), daemon=True).start()
             from whatsapp_agent import WhatsAppAgent  # separate worker: keeps WhatsApp documents read and ready
+            tools_mod = __import__("tools")
+            tools_mod.CTX["notify"] = lambda t: self.bridge.chat("assistant", t)
             WhatsAppAgent(self.cfg, lambda t: self.bridge.chat("assistant", t)).start()
+            from deep_scan import ScanAgent  # asks once, then refreshes everything every 12 hours
+            ScanAgent(self.cfg, lambda t: self.bridge.chat("assistant", t)).start()
         if self.cfg.get("tools_enabled", {}).get("email", True):
             from email_agent import EmailAgent  # daily email digest at the chosen time
             EmailAgent(self.cfg, lambda t: self.submit_text(t, speak=False)).start()
@@ -163,7 +180,7 @@ class Assistant:
             self.bridge.state("speaking")
             try:
                 t0 = time.time()
-                path = self.mouth.speak(msg, voice_name=self.cfg.get("voice", "amy"), play=False)
+                path = self.mouth.speak(_spoken(msg), voice_name=self.cfg.get("voice", "amy"), play=False)
                 print(f"[timing] voice {time.time() - t0:.1f}s")
                 audio.play_wav(path, self.bridge.level)
             except Exception as e:

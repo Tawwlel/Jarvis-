@@ -22,7 +22,8 @@ STEPS = {
         "1. Tell Jarvis 'link WhatsApp' (or tray icon > Link WhatsApp). A browser window opens with a QR code.\n"
         "2. On the phone: WhatsApp > Settings > Linked devices > Link a device > scan the QR code.\n"
         "3. Wait until chats appear, then the window closes by itself. This is done once.\n"
-        "4. Then say 'check WhatsApp' to fetch recent files. Jarvis also checks every 15 minutes.\n"
+        "4. Jarvis then asks to scan everything (computer + every WhatsApp chat). Say 'yes, scan everything'. After "
+        "that it refreshes every 12 hours by itself; 'check WhatsApp' fetches new files any time.\n"
         "WhatsApp only gives recent files this way. For the full old history on an iPhone, use the iPhone step."),
     "iphone": (
         "OLD WHATSAPP FILES FROM AN IPHONE (full history)\n"

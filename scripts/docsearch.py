@@ -250,7 +250,17 @@ def _date_words(d: str) -> str:
 def _folders(cfg: dict) -> list[Path]:
     import files
     extra = [Path(p).expanduser() for p in cfg.get("doc_folders", [])]
-    return [p for p in files.roots() + extra if p.exists()]
+    try:  # folders the owner allowed Jarvis to scan (see deep_scan.py)
+        import deep_scan
+        extra += deep_scan.extra_folders()
+    except Exception:
+        pass
+    out, seen = [], set()
+    for p in files.roots() + extra:
+        if p.exists() and str(p.resolve()) not in seen:
+            seen.add(str(p.resolve()))
+            out.append(p)
+    return out
 
 
 def _walk(root: Path):
@@ -262,7 +272,7 @@ def _walk(root: Path):
             yield p
 
 
-def reindex(cfg: dict, include_computer=True, include_whatsapp=True) -> dict:
+def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=None) -> dict:
     db, seen, added = _db(), set(), 0
     jobs = []
     if include_computer:
@@ -288,6 +298,10 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True) -> dict:
                        (key, source, chat, p.name, p.suffix.lower(), st.st_mtime, st.st_size, text[:30000],
                         typ, find_amount(text), find_date(p.name, text, st.st_mtime), fields))
             added += 1
+            if added % 25 == 0:  # save as we go: a big first scan is searchable early and survives a crash
+                db.commit()
+                if progress and added % 100 == 0:
+                    progress(added)
     scope = tuple(s for s, ok in (("computer", include_computer), ("whatsapp", include_whatsapp)) if ok)
     for (path,) in db.execute(f"SELECT path FROM docs WHERE source IN ({','.join('?' * len(scope))})", scope).fetchall():
         if path not in seen:
@@ -782,6 +796,21 @@ def _wa_ready() -> bool:
     return WA_DIR.exists() and any(WA_DIR.iterdir())
 
 
+def _index_empty(source="any") -> bool:
+    db = _db()
+    q = "SELECT COUNT(*) FROM docs" + ("" if source == "any" else " WHERE source=?")
+    n = db.execute(q, () if source == "any" else (source,)).fetchone()[0]
+    db.close()
+    return n == 0
+
+
+def _not_ready() -> str:
+    if _index_lock.locked():
+        return ("I'm still reading your files for the first time, so I can't answer yet. Ask again in a minute - "
+                "it only happens once.")
+    return "I haven't read any files yet. Say 'scan everything' and I will learn where all your documents are."
+
+
 @tool("doc_search",
       "Find documents (invoices, quotations, receipts, photos, files). source: 'computer' for files on this "
       "laptop, 'whatsapp' for files from WhatsApp chats, 'any' if the user did not say. Put the user's own words "
@@ -795,9 +824,9 @@ def doc_search(query, source="any"):
     cfg = CTX.get("cfg", {})
     if source == "whatsapp" and not _wa_ready():
         return "No WhatsApp files are saved on this laptop yet. Link WhatsApp (whatsapp_link) and then run whatsapp_sync, or tell the user to do so."
-    with _index_lock:  # wait for a background index run instead of doing the work twice
-        reindex(cfg, include_computer=source != "whatsapp", include_whatsapp=source != "computer")
-    threading.Thread(target=_vectors, daemon=True).start()
+    if _index_empty(source):  # nothing read yet: say so instead of making the owner wait
+        return _not_ready()
+    threading.Thread(target=background_index, args=(cfg,), daemon=True).start()  # pick up new files for next time
     return _fmt(search(query, source))
 
 
@@ -815,7 +844,6 @@ def doc_find_by_meaning(description, source="any"):
             return "Meaning search is still getting ready (first-time setup). Use doc_search for now."
     except Exception:
         return "Meaning search isn't available on this laptop."
-    _vectors()
     items = _meaning(description, source)
     if not items:
         return "Nothing matched that description."

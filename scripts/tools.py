@@ -30,6 +30,42 @@ def tool(name: str, description: str, properties: dict | None = None, required: 
 CTX: dict = {}
 
 
+def notify(msg: str):
+    """Say something in the chat window from a background job (set by the app; silent when there is none)."""
+    f = CTX.get("notify")
+    if f:
+        try:
+            f(msg)
+        except Exception as e:
+            print("[notify]", e)
+
+
+_running: set = set()
+
+
+def background(label: str, fn, started: str):
+    """Run a long job (WhatsApp link, big scans) in its own thread so the chat never sits on 'working'.
+    The result is announced in the chat when it finishes. A thread marked .inline (the tray's own worker,
+    tests) just runs it and returns the result."""
+    import threading
+    if getattr(threading.current_thread(), "inline", False):
+        return fn()
+    if label in _running:
+        return "That is already running. I'll tell you as soon as it finishes."
+
+    def run():
+        try:
+            msg = fn()
+        except Exception as e:
+            msg = f"That didn't finish: {e}"
+        finally:
+            _running.discard(label)
+        notify(str(msg))
+    _running.add(label)
+    threading.Thread(target=run, daemon=True, name=label).start()
+    return started
+
+
 @tool("get_time", "Get the current local date and time.")
 def get_time():
     return dt.datetime.now().strftime("%A %d %B %Y, %I:%M %p")
@@ -105,6 +141,8 @@ def enabled_tools(cfg: dict) -> list:
     import briefing  # noqa: F401  (registers update_settings)
     import backup  # noqa: F401  (registers backup_now)
     import setup_guide  # noqa: F401  (registers setup_help)
+    if flags.get("documents", True):
+        import deep_scan  # noqa: F401  (registers scan_* tools)
     groups = {
         "reminders": ["set_reminder"],
         "email": [n for n in REGISTRY if n.startswith("email_") or n == "add_to_calendar"],
@@ -116,7 +154,7 @@ def enabled_tools(cfg: dict) -> list:
         "files": [n for n in REGISTRY if n.startswith("file_")],
         "documents": [n for n in REGISTRY if n.startswith("doc_") or n.startswith("whatsapp_") or n.startswith("iphone_") or n.startswith("invoice_") or n == "learn_invoice_layout"],
     }
-    names = {"get_time", "remember_fact", "update_settings", "backup_now", "setup_help"}
+    names = {"get_time", "remember_fact", "update_settings", "backup_now", "setup_help", "scan_everything", "scan_status", "scan_settings", "scan_add_folder"}
     default_on = {"todos", "files", "documents", "email", "reminders"}
     for flag, tnames in groups.items():
         if flags.get(flag, flag in default_on):

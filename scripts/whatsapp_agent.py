@@ -87,11 +87,7 @@ class WhatsAppAgent(threading.Thread):
                         self.notify(msg)
             except Exception as e:
                 print("[wa-agent] iPhone backup:", e)
-            if wa.PROFILE.exists() or (wa.WA_DIR.exists() and any(wa.WA_DIR.iterdir())):
-                try:
-                    run_once(self.cfg, self.notify)
-                except Exception as e:
-                    print("[wa-agent] error:", e)
+            # regular WhatsApp refreshes now come from deep_scan.ScanAgent (every 12 hours, after permission)
             time.sleep(INTERVAL_MIN * 60)
 
 
@@ -114,9 +110,8 @@ def _topic(question: str) -> str:
       "and say which file the answer came from. If nothing matches, say so.",
       {"question": {"type": "string"}}, ["question"])
 def whatsapp_docs_ask(question):
-    cfg = CTX.get("cfg", {})
-    with _lock:
-        docsearch.reindex(cfg, include_computer=False, include_whatsapp=True)
+    if docsearch._index_empty("whatsapp"):
+        return docsearch._not_ready()
     r = docsearch.search(_topic(question), "whatsapp", limit=5)
     if r["mode"] == "close" or not r["items"]:  # the question's own wording may still match better
         r2 = docsearch.search(question, "whatsapp", limit=5)

@@ -159,6 +159,11 @@ class Brain:
 
     # ---------- routing ----------
     def route(self, text: str) -> str:
+        if self.llm_ready():  # the online model answers in seconds; the small local model took 30-120 s on laptops
+            if HARD_HINTS.search(text) and re.search(
+                    r"screen|computer|click|automate|open|browser|window|analy|research|debug", text, re.I):
+                return "sonnet"
+            return "haiku"
         if TRIVIAL.match(text.strip()) and len(text) < 40:
             return "local"
         if HARD_HINTS.search(text):
@@ -176,6 +181,9 @@ class Brain:
         if len(t) > 80:
             return None
         now = dt.datetime.now()
+        if re.fullmatch(r"(hi|hello|hey|salam|assalam o alaikum|assalamualaikum|good (morning|evening))\W*"
+                        r"( jarvis)?\W*", t.strip()):
+            return f"Hello {self.cfg.get('owner_name') or ''}! How can I help?".replace("Hello !", "Hello!")
         if re.search(r"\bwhat(?:'s| is)? (?:the )?time\b|\btime (?:is it|right now)\b|وقت کیا|کتنے بجے", t):
             return now.strftime("It's %I:%M %p.").replace(" 0", " ")
         if re.search(r"\bwhat(?:'s| is)? (?:the |today'?s )?date\b|\bwhat day is (?:it|today)\b|آج کیا تاریخ|آج کون سا دن", t):

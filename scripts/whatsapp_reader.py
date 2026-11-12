@@ -85,15 +85,48 @@ def link(timeout=300) -> str:
             return "The QR code was not scanned in time. Try again."
 
 
-def _chat_names(page, limit):
+def _chat_names(page, limit, deep=False):
+    """The chats in the list. deep=True scrolls the whole list (WhatsApp only draws the visible rows)."""
     names = []
-    for row in page.query_selector_all(SEL["chat_rows"])[:limit * 2]:
-        t = row.query_selector("span[title]")
-        if t:
-            n = (t.get_attribute("title") or "").strip()
-            if n and n not in names:
-                names.append(n)
+
+    def collect():
+        new = 0
+        for row in page.query_selector_all(SEL["chat_rows"]):
+            t = row.query_selector("span[title]")
+            if t:
+                n = (t.get_attribute("title") or "").strip()
+                if n and n not in names:
+                    names.append(n)
+                    new += 1
+        return new
+
+    collect()
+    if deep:
+        quiet = 0
+        for _ in range(120):
+            page.evaluate("() => { const e = document.querySelector('#pane-side'); if (e) e.scrollBy(0, 900); }")
+            page.wait_for_timeout(350)
+            quiet = 0 if collect() else quiet + 1
+            if quiet >= 4 or len(names) >= limit:
+                break
+        page.evaluate("() => { const e = document.querySelector('#pane-side'); if (e) e.scrollTo(0, 0); }")
     return names[:limit]
+
+
+def _load_history(page, deep: bool, seconds: int = 120):
+    """Scroll a chat upwards so older messages load. Light: a few pulls. Deep: until nothing more arrives."""
+    if not deep:
+        for _ in range(3):
+            page.mouse.wheel(0, -4000)
+            page.wait_for_timeout(800)
+        return
+    t0, last, quiet = time.time(), -1, 0
+    while time.time() - t0 < seconds and quiet < 3:
+        page.mouse.wheel(0, -6000)
+        page.wait_for_timeout(900)
+        n = len(page.query_selector_all(SEL["messages"]))
+        quiet = quiet + 1 if n == last else 0
+        last = n
 
 
 def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
@@ -153,17 +186,20 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
 _busy = __import__("threading").Lock()
 
 
-def sync(chats=None, per_chat=40, chat_limit=15) -> dict:
-    """Saves recent documents/photos of the given chats (or the most recent ones) into data/whatsapp."""
+def sync(chats=None, per_chat=40, chat_limit=15, deep=False, progress=None) -> dict:
+    """Saves documents/photos of the given chats (or the most recent ones) into data/whatsapp.
+    deep=True goes through EVERY chat and loads each chat's whole available history."""
     if not _busy.acquire(blocking=False):  # one browser per profile at a time
         return {"busy": 0}
     try:
-        return _sync(chats, per_chat, chat_limit)
+        if deep:
+            per_chat, chat_limit = max(per_chat, 1000), max(chat_limit, 500)
+        return _sync(chats, per_chat, chat_limit, deep, progress)
     finally:
         _busy.release()
 
 
-def _sync(chats, per_chat, chat_limit) -> dict:
+def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
     from playwright.sync_api import sync_playwright
     if not PROFILE.exists():
         return {"error": "not linked"}
@@ -180,17 +216,17 @@ def _sync(chats, per_chat, chat_limit) -> dict:
             ctx.close()
             return {"error": "not linked"}
         page.wait_for_timeout(3000)
-        names = chats or _chat_names(page, chat_limit)
-        for name in names:
+        names = chats or _chat_names(page, chat_limit, deep)
+        for i, name in enumerate(names, 1):
             try:
                 page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=5000)
                 page.wait_for_timeout(2500)
-                for _ in range(3):  # load a bit more history
-                    page.mouse.wheel(0, -4000)
-                    page.wait_for_timeout(800)
+                _load_history(page, deep)
                 result[name] = _download_chat(page, name, per_chat, set())
             except Exception as e:
                 result[name] = f"skipped ({type(e).__name__})"
+            if progress:
+                progress(i, len(names), name)
         ctx.close()
     return result
 
@@ -203,7 +239,21 @@ def whatsapp_link():
         import playwright  # noqa: F401
     except ImportError:
         return "WhatsApp support is not installed yet. Run update.bat once, then try again."
-    return link()
+    from tools import background
+    return background("whatsapp_link", _link_and_offer,
+                      "Opening WhatsApp now. On your phone: WhatsApp > Settings > Linked devices > Link a device, "
+                      "then scan the code on the screen. I'll tell you as soon as it's linked.")
+
+
+def _link_and_offer() -> str:
+    msg = link()
+    if msg == "WhatsApp is linked.":
+        try:
+            import deep_scan
+            msg += " " + deep_scan.offer()
+        except Exception as e:
+            print("[scan] offer:", e)
+    return msg
 
 
 @tool("whatsapp_sync",
@@ -216,6 +266,14 @@ def whatsapp_sync(chats=""):
     except ImportError:
         return "WhatsApp support is not installed yet. Run update.bat once, then try again."
     names = [c.strip() for c in chats.split(",") if c.strip()] or None
+    if not PROFILE.exists():
+        return "WhatsApp is not linked yet. Say 'link WhatsApp' first."
+    from tools import background
+    return background("whatsapp_sync", lambda: _sync_and_report(names),
+                      "Checking WhatsApp for new files in the background. I'll tell you when it's done.")
+
+
+def _sync_and_report(names) -> str:
     r = sync(names)
     if "busy" in r:
         return "WhatsApp is already being checked in the background; try the search in a minute."
