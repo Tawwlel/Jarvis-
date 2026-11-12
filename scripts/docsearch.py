@@ -78,6 +78,10 @@ MON_ALIAS = {m[:3]: i for i, m in enumerate(MONTHS)} | {m: i for i, m in enumera
 def _db():
     DATA.mkdir(exist_ok=True)
     c = sqlite3.connect(DATA / "docs.db", timeout=15)
+    try:
+        c.execute("PRAGMA journal_mode=WAL")  # searches keep answering while a scan is writing
+    except sqlite3.DatabaseError:
+        pass
     cols = [r[1] for r in c.execute("PRAGMA table_info(docs)").fetchall()]
     if cols and ("doc_date" not in cols or "fields" not in cols):
         c.execute("DROP TABLE docs")  # older index format: rebuild it (also re-reads photos for Urdu)
@@ -298,7 +302,8 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=No
                        (key, source, chat, p.name, p.suffix.lower(), st.st_mtime, st.st_size, text[:30000],
                         typ, find_amount(text), find_date(p.name, text, st.st_mtime), fields))
             added += 1
-            if added % 25 == 0:  # save as we go: a big first scan is searchable early and survives a crash
+            time.sleep(0.02)  # let a waiting question through: scans must never make answers slow
+            if added % 5 == 0:  # save as we go: a big first scan is searchable early and survives a crash
                 db.commit()
                 if progress and added % 100 == 0:
                     progress(added)
