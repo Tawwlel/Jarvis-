@@ -25,6 +25,7 @@ from tools import CTX, tool
 
 DATA = Path(__file__).parent.parent / "data"
 WA_DIR = DATA / "whatsapp"
+EMAIL_DIR = DATA / "email_docs"  # attachments saved by the email agent, one folder per sender
 OUT_DIR = Path.home() / "Documents" / "Jarvis Files"
 EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".docx", ".xlsx", ".txt", ".csv"}
 IMG = {".jpg", ".jpeg", ".png", ".webp"}
@@ -151,6 +152,7 @@ def _ocr(img) -> str:
     return (latin + "\n" + urdu).strip()
 
 
+PDF_PAGES, PDF_OCR_PAGES = 60, 6  # text of the first 60 pages; up to 6 scanned pages read as pictures
 MAX_MB = {".pdf": 80, ".docx": 40, ".xlsx": 40}
 IMG_MIN_BYTES, IMG_MAX_BYTES, IMG_MAX_SIDE = 12_000, 40_000_000, 2200
 FILE_SECONDS = 90  # one file that takes longer than this is skipped, never allowed to stall a scan
@@ -192,11 +194,21 @@ def _extract(p: Path, ext: str) -> str:
         if ext == ".pdf":
             from pypdf import PdfReader
             r = PdfReader(str(p))
-            t = " ".join((pg.extract_text() or "") for pg in r.pages[:10])
-            if len(t.strip()) < 20:  # scanned PDF: read the first page as a picture
+            if r.is_encrypted:
+                try:
+                    r.decrypt("")
+                except Exception:
+                    return ""  # password-protected: known by name only
+            pages = r.pages[:PDF_PAGES]
+            texts = [(pg.extract_text() or "") for pg in pages]
+            # scanned pages (no text layer) are read as pictures: the first few of them, so a scanned invoice is found
+            blank = [i for i, x in enumerate(texts) if len(x.strip()) < 20][:PDF_OCR_PAGES]
+            if blank:
                 import pypdfium2 as pdfium
-                t = _ocr(pdfium.PdfDocument(str(p))[0].render(scale=2).to_pil())
-            return t
+                doc = pdfium.PdfDocument(str(p))
+                for i in blank:
+                    texts[i] = _ocr(doc[i].render(scale=2).to_pil())
+            return " ".join(texts)
         if ext in IMG:
             from PIL import Image
             Image.MAX_IMAGE_PIXELS = 60_000_000  # bigger than this is refused (decompression bombs)
@@ -355,13 +367,15 @@ def _walk(root: Path):
             yield p
 
 
-def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=None) -> dict:
+def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=None, include_email=True) -> dict:
     db, seen, added = _db(), set(), 0
     jobs = []
     if include_computer:
         jobs += [("computer", r, None) for r in _folders(cfg)]
     if include_whatsapp and WA_DIR.exists():
         jobs += [("whatsapp", WA_DIR, "chat")]
+    if include_email and EMAIL_DIR.exists():
+        jobs += [("email", EMAIL_DIR, "chat")]
     for source, root, mode in jobs:
         for p in _walk(root):
             key = str(p)
@@ -386,7 +400,8 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=No
                 db.commit()
                 if progress and added % 100 == 0:
                     progress(added)
-    scope = tuple(s for s, ok in (("computer", include_computer), ("whatsapp", include_whatsapp)) if ok)
+    scope = tuple(s for s, ok in (("computer", include_computer), ("whatsapp", include_whatsapp),
+                                                 ("email", include_email and EMAIL_DIR.exists())) if ok)
     for (path,) in db.execute(f"SELECT path FROM docs WHERE source IN ({','.join('?' * len(scope))})", scope).fetchall():
         if path not in seen:
             db.execute("DELETE FROM docs WHERE path=?", (path,))
@@ -912,12 +927,12 @@ def _not_ready() -> str:
 
 @tool("doc_search",
       "Find documents (invoices, quotations, receipts, photos, files). source: 'computer' for files on this "
-      "laptop, 'whatsapp' for files from WhatsApp chats, 'any' if the user did not say. Put the user's own words "
+      "laptop, 'whatsapp' for files from WhatsApp chats, 'email' for attachments from email, 'any' if the user did not say. Put the user's own words "
       "in query, in English letters (translate Urdu document words, write names in English letters) (client name, description, amount, date). If they ask for ALL of a type, query is just the type "
       "(e.g. 'sales invoices'). It understands dates ('march', 'last month', '2025'), 'latest'/'oldest', "
       "amount limits ('above 2 lakh', 'under 50k'), invoice numbers and amounts. Report only what the tool "
       "returns; if it says closest matches, ask the user which one they mean.",
-      {"query": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "any"]}},
+      {"query": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "email", "any"]}},
       ["query"])
 def doc_search(query, source="any"):
     cfg = CTX.get("cfg", {})
@@ -961,7 +976,7 @@ def note_phone_files(items):
       "Find documents from a vague description when exact words won't work, e.g. 'the steel deal from the summer', "
       "'contract with 30-day payment terms', 'woh bill jis mein late fee ka zikr tha'. Works across Urdu and "
       "English. Tell the user these are likely matches.",
-      {"description": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "any"]}},
+      {"description": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "email", "any"]}},
       ["description"])
 def doc_find_by_meaning(description, source="any"):
     try:
@@ -981,7 +996,7 @@ def doc_find_by_meaning(description, source="any"):
 @tool("doc_collect",
       "Gather the files found for a query into one folder and open it. Use after doc_search when the user wants "
       "the files together. Same query/source as doc_search.",
-      {"query": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "any"]}},
+      {"query": {"type": "string"}, "source": {"type": "string", "enum": ["computer", "whatsapp", "email", "any"]}},
       ["query"])
 def doc_collect(query, source="any"):
     cfg = CTX.get("cfg", {})

@@ -156,6 +156,87 @@ def fetch(cfg, hours: float, limit=40) -> list[dict]:
             pass
 
 
+DOC_EXT = (".pdf", ".docx", ".xlsx", ".jpg", ".jpeg", ".png", ".csv")
+ATT_STATE = DATA / "email_docs.json"
+MAX_ATT_MB = 25
+
+
+def _safe(n: str) -> str:
+    return re.sub(r'[\\/:*?"<>|\r\n]+', "_", n).strip(" .")[:80] or "mail"
+
+
+def save_attachments(msg, root: Path, sender: str, when: datetime) -> int:
+    """Save the document attachments of one mail under root/<sender>/<date>_<name>. Returns how many were new."""
+    name = email.utils.parseaddr(sender)[0] or email.utils.parseaddr(sender)[1] or "unknown"
+    folder = root / _safe(name)
+    n = 0
+    for part in msg.walk():
+        fn = _decode(part.get_filename())
+        if not fn or not fn.lower().endswith(DOC_EXT):
+            continue
+        data = part.get_payload(decode=True)
+        if not data or len(data) > MAX_ATT_MB * 1_000_000:
+            continue
+        if fn.lower().endswith((".jpg", ".jpeg", ".png")) and len(data) < 30_000:
+            continue  # signature logos
+        folder.mkdir(parents=True, exist_ok=True)
+        dest = folder / f"{when:%Y-%m-%d}_{_safe(fn)}"
+        if not dest.exists():
+            dest.write_bytes(data)
+            ts = when.timestamp()
+            try:
+                import os
+                os.utime(dest, (ts, ts))  # the mail's date is the file's date
+            except OSError:
+                pass
+            n += 1
+    return n
+
+
+def sync_attachments(cfg, days: int = 14):
+    """Save PDF/Word/Excel/photo attachments of the last `days` days of mail so Jarvis can search inside them.
+    Returns the number of new files, or None when no email is connected. Read-only: nothing is changed in the mailbox."""
+    import json
+    if not settings(cfg).get("address", "").strip():
+        return None
+    root = Path(__file__).parent.parent / "data" / "email_docs"
+    try:
+        seen = set(json.loads(ATT_STATE.read_text(encoding="utf-8")))
+    except Exception:
+        seen = set()
+    total = 0
+    m = _login(cfg)
+    try:
+        m.select("INBOX", readonly=True)
+        since = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
+        _, data = m.search(None, "SINCE", since)
+        for i in data[0].split():
+            _, h = m.fetch(i, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID CONTENT-TYPE)])")
+            head = h[0][1].decode("utf-8", "ignore") if h and h[0] else ""
+            if "multipart/mixed" not in head.lower() and "multipart/related" not in head.lower():
+                continue  # no attachments: don't download the whole mail
+            mid = re.search(r"message-id:\s*(\S+)", head, re.I)
+            key = mid.group(1) if mid else i.decode()
+            if key in seen:
+                continue
+            _, d = m.fetch(i, "(BODY.PEEK[])")
+            msg = email.message_from_bytes(d[0][1])
+            try:
+                when = email.utils.parsedate_to_datetime(msg["Date"]).replace(tzinfo=None)
+            except Exception:
+                when = datetime.now()
+            total += save_attachments(msg, root, _decode(msg["From"]), when)
+            seen.add(key)
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+        DATA.mkdir(exist_ok=True)
+        ATT_STATE.write_text(json.dumps(sorted(seen)), encoding="utf-8")
+    return total
+
+
 @tool("email_digest",
       "Read the owner's new emails (last N hours, default from settings, usually 24) and brief them. For each "
       "IMPORTANT mail give: one-line summary, a suggested idea or reply, questions worth asking, and a tip. Group "

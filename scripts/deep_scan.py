@@ -79,15 +79,15 @@ def _counts() -> dict:
                          "GROUP BY doc_type ORDER BY 2 DESC").fetchall()
     db.close()
     return {"total": total, "computer": by_src.get("computer", 0), "whatsapp": by_src.get("whatsapp", 0),
-            "types": by_type}
+            "email": by_src.get("email", 0), "types": by_type}
 
 
 def _summary(prefix: str) -> str:
     c = _counts()
     types = ", ".join(f"{n} {t}{'s' if n != 1 else ''}" for t, n in c["types"][:6])
     hours = _load().get("hours", DEFAULT_HOURS)
-    return (f"{prefix} I now know {c['total']} files: {c['computer']} on this computer and {c['whatsapp']} from "
-            f"WhatsApp" + (f" ({types})" if types else "") + f". Ask me for any of them and I'll answer straight "
+    return (f"{prefix} I now know {c['total']} files: {c['computer']} on this computer, {c['whatsapp']} from "
+            f"WhatsApp and {c['email']} from email" + (f" ({types})" if types else "") + f". Ask me for any of them and I'll answer straight "
             f"away. I'll refresh this every {hours:g} hours.")
 
 
@@ -117,6 +117,16 @@ def run_scan(cfg: dict, full: bool = True) -> str:
             notify("WhatsApp was busy, so that part will be done next time.")
         elif state == "not linked" and full:
             notify("WhatsApp isn't linked yet, so I scanned the computer only. Say 'link WhatsApp' to add it.")
+        try:
+            import email_agent
+            n = email_agent.sync_attachments(cfg, days=180 if full else 14)
+            if n is not None:
+                with docsearch._index_lock:
+                    docsearch.reindex(cfg, include_computer=False, include_whatsapp=False)
+                if full:
+                    notify(f"Email: saved and read {n} new attachment(s).")
+        except Exception as e:
+            print("[scan] email:", e)
         threading.Thread(target=docsearch._vectors, daemon=True).start()
         st = _load()
         st["last_sync"] = time.time()
