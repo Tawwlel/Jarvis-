@@ -44,17 +44,52 @@ TYPES = {  # canonical type -> words that mean it (checked longest first)
     "delivery challan": ["delivery challan", "delivery challans", "challan", "challans", "delivery note",
                          "gate pass", "چالان", "ڈیلیوری چالان"],
     "purchase order": ["purchase order", "purchase orders", "po", "پرچیز آرڈر"],
-    "quotation": ["quotation", "quote", "quotes", "quotations", "estimate", "estimates", "proforma",
-                  "pro forma", "کوٹیشن", "کوٹیشنز"],
+    "quotation": ["quotation", "quote", "quotes", "quotations", "price quote", "estimate", "estimates",
+                  "کوٹیشن", "کوٹیشنز"],
+    "proforma invoice": ["proforma invoice", "pro forma invoice", "proforma", "pro forma", "performa invoice",
+                         "پرو فارما"],
+    "debit note": ["debit note", "debit notes", "debit memo", "ڈیبٹ نوٹ"],
+    "statement of account": ["statement of account", "statement of accounts", "account statement", "customer statement",
+                             "supplier statement", "bank statement", "soa", "اکاؤنٹ اسٹیٹمنٹ", "گوشوارہ"],
+    "purchase requisition": ["purchase requisition", "purchase requisitions", "requisition", "purchase request",
+                             "material requisition"],
+    "sales order": ["sales order", "sales orders", "sale order", "so confirmation", "order confirmation", "سیلز آرڈر"],
+    "bill of lading": ["bill of lading", "bills of lading", "house bill of lading", "master bill of lading", "bol"],
+    "nda": ["non disclosure", "nondisclosure", "nda", "confidentiality agreement", "نان ڈسکلوژر"],
+    "vendor contract": ["vendor contract", "supplier contract", "vendor agreement", "supplier agreement",
+                        "service agreement", "master services agreement", "msa"],
+    "terms of service": ["terms of service", "terms of use", "terms and conditions", "terms conditions", "tos", "t c"],
+    "mou": ["memorandum of understanding", "mou", "m o u", "یادداشت"],
+    "license or permit": ["license", "licence", "licenses", "licences", "permit", "permits", "noc",
+                          "registration certificate", "لائسنس", "پرمٹ"],
+    "articles of incorporation": ["articles of incorporation", "articles of association", "memorandum of association",
+                                  "certificate of incorporation", "moa", "aoa"],
+    "business plan": ["business plan", "business plans", "feasibility report", "کاروباری منصوبہ"],
+    "meeting minutes": ["meeting minutes", "minutes of meeting", "minutes of the meeting", "minutes of meetings",
+                        "minutes", "mom", "میٹنگ منٹس"],
+    "bylaws": ["bylaws", "by laws", "bye laws", "byelaws"],
+    "employment contract": ["employment contract", "employment agreement", "contract of employment",
+                            "appointment letter", "offer letter", "ملازمت کا معاہدہ"],
+    "job description": ["job description", "job descriptions", "jd", "job profile", "role description"],
+    "employee handbook": ["employee handbook", "staff handbook", "employee manual", "hr manual", "hr policy",
+                          "handbook"],
+    "performance appraisal": ["performance appraisal", "performance review", "appraisal", "performance evaluation",
+                              "annual review"],
     "receipt": ["receipt", "receipts", "payment receipt", "payment slip", "voucher", "رسید", "رسیدیں"],
     "invoice": ["invoice", "invoices", "inv", "bill", "bills", "انوائس", "انوائسز", "بل"],
     "agreement": ["agreement", "agreements", "contract", "contracts", "rent deed", "معاہدہ", "معاہدے", "کرایہ نامہ",
                   "اقرار نامہ"],
 }
-TYPE_ORDER = ["sales invoice", "purchase invoice", "credit note", "delivery challan", "purchase order",
-              "quotation", "receipt", "invoice", "agreement"]
-NOT_DOCS = re.compile(r"curriculum vitae|\bresume\b|\bcv\b|bank statement|account statement|price list|"
-                      r"meeting notes|minutes of meeting|\bagenda\b", re.I)
+TYPE_ORDER = ["sales invoice", "purchase invoice", "proforma invoice", "credit note", "debit note", "delivery challan",
+              "bill of lading", "purchase requisition", "purchase order", "sales order", "quotation",
+              "statement of account", "receipt", "invoice", "agreement"]
+# Formal documents are recognised by their title (file name or first words), so an NDA that mentions "invoice date"
+# in its terms is still an NDA. Most specific first; plain "agreement" last.
+FORMAL = ["employment contract", "nda", "mou", "terms of service", "vendor contract", "articles of incorporation",
+          "bylaws", "employee handbook", "performance appraisal", "job description", "business plan",
+          "meeting minutes", "license or permit", "agreement"]
+NOT_MONEY = set(FORMAL) - {"agreement", "vendor contract"}  # no invoice-style total to read from these
+NOT_DOCS = re.compile(r"curriculum vitae|\bresume\b|\bcv\b|price list|meeting notes|\bagenda\b", re.I)
 STOP = set("""a an the of for from to by with in on at and or me my find show get give all every any
 file files document documents doc docs pdf photo photos picture pictures image images client clients
 please can you jarvis look up lookup search send those these that this is are was were i want need
@@ -97,7 +132,7 @@ def _db():
     return c
 
 
-INDEX_REV = 3  # bump when classify/find_date/junk rules change: stored rows are re-labelled from their saved text
+INDEX_REV = 4  # bump when classify/find_date/junk rules change: stored rows are re-labelled from their saved text
 
 
 def _migrate(c):
@@ -374,9 +409,13 @@ def classify(name: str, text: str) -> str:
         return "register"
     def first(hay):
         return next((typ for typ in TYPE_ORDER if _has(TYPES[typ], hay)), "")
-    title = " ".join(text.lower().split()[:6])
-    if _has(TYPES["agreement"], fname) or _has(TYPES["agreement"], title):
-        return "agreement"  # an agreement that mentions "invoice date" in its terms is not an invoice
+    title = _norm(" ".join(text.lower().split()[:6]))
+    for typ in FORMAL:  # (the plain word "agreement" is last, so "agreement.pdf" titled "Non-Disclosure Agreement" is an NDA)
+        if _has(TYPES[typ], title):
+            return typ
+    for typ in FORMAL:
+        if _has(TYPES[typ], fname):
+            return typ  # an agreement that mentions "invoice date" in its terms is not an invoice
     by_name, by_head = first(fname), first(head)
     if Path(name).suffix.lower() in (".xlsx", ".xls", ".csv") and not by_name:
         # a workbook that merely mentions invoices in its first cells is a list/worksheet, not an invoice
@@ -482,6 +521,7 @@ def _walk(root: Path):
 
 def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=None, include_email=True) -> dict:
     db, seen, added = _db(), set(), 0
+    light = _light()
     jobs = []
     if include_computer:
         jobs += [("computer", r, None) for r in _folders(cfg)]
@@ -497,7 +537,7 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=No
             row = db.execute("SELECT mtime,size FROM docs WHERE path=?", (key,)).fetchone()
             if row and abs(row[0] - st.st_mtime) < 1 and row[1] == st.st_size:
                 continue
-            text = extract_text(p)
+            text = "" if light else extract_text(p)  # light mode: remember the location only, read when asked
             chat = p.relative_to(root).parts[0] if mode == "chat" and len(p.relative_to(root).parts) > 1 else ""
             typ = classify(p.name, text)
             fields = _fields(text, p.name, typ)
@@ -506,7 +546,7 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=No
                 text = text + "\n[" + CAT_WORDS.get(cat, cat.lower()) + "]"
             db.execute("REPLACE INTO docs VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)",
                        (key, source, chat, p.name, p.suffix.lower(), st.st_mtime, st.st_size, text[:30000],
-                        typ, find_amount(text), find_date(p.name, text, st.st_mtime), fields))
+                        typ, "" if typ in NOT_MONEY else find_amount(text), find_date(p.name, text, st.st_mtime), fields))
             added += 1
             time.sleep(0.002)  # let a waiting question through: scans must never make answers slow
             if added % 5 == 0:  # save as we go: a big first scan is searchable early and survives a crash
@@ -532,7 +572,7 @@ CAT_WORDS = {"Fuel": "fuel petrol diesel پٹرول", "Groceries": "groceries gr
 
 def _fields(text, name, typ) -> str:
     """Exact invoice/receipt details (number, total, tax, customer...) as JSON - see invoice_fields.py."""
-    if typ in ("other", "cv", "register") or not text:
+    if typ in ("other", "cv", "register") or typ in NOT_MONEY or not text:
         return ""
     try:
         import invoice_fields
@@ -729,7 +769,54 @@ def _repair(query: str):
     return re.sub(re.escape(heard), name, query, count=1, flags=re.I), f"Heard '{heard}' - taken as '{name}'."
 
 
+def _light() -> bool:
+    try:
+        import deep_scan
+        return deep_scan.learn_mode() == "light"
+    except Exception:
+        return False
+
+
+def read_pending(terms=(), n: int = 40, seconds: float = 40) -> int:
+    """Light mode: read files that so far are only known by name - the likeliest first - and remember what they say."""
+    db = _db()
+    rows = db.execute("SELECT path, name, mtime FROM docs WHERE (text='' OR text IS NULL) AND mtime>0 "
+                      "AND ext NOT IN ('.zip','.rar')").fetchall()
+    rows += db.execute("SELECT path, name, mtime FROM docs WHERE (text='' OR text IS NULL) AND mtime>0 "
+                       "AND ext IN ('.zip','.rar')").fetchall()
+    rows.sort(key=lambda r: (-sum(t in r[1].lower() for t in terms), -r[2]))
+    done, t0 = 0, time.time()
+    for path, name, mtime in rows[:n]:
+        if time.time() - t0 > seconds:
+            break
+        p = Path(path)
+        if not p.exists():
+            continue
+        text = extract_text(p) or " "  # a blank file is not asked about again
+        typ = classify(name, text)
+        fields = _fields(text, name, typ)
+        db.execute("UPDATE docs SET text=?, doc_type=?, amount=?, doc_date=?, fields=? WHERE path=?",
+                   (text[:30000], typ, "" if typ in NOT_MONEY else find_amount(text),
+                    find_date(name, text, mtime), fields, path))
+        done += 1
+    db.commit()
+    db.close()
+    return done
+
+
 def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
+    r = _search_all(query, source, doc_type, limit)
+    if _light() and (not r["items"] or r["mode"] == "close"):
+        for _ in range(3):  # read the next likeliest files, then look again
+            if not read_pending(parse(query)[1]):
+                break
+            r = _search_all(query, source, doc_type, limit)
+            if r["items"] and r["mode"] != "close":
+                break
+    return r
+
+
+def _search_all(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
     """Exact word search first; if that finds nothing sure, try a misheard-name repair, then search by meaning."""
     query = re.sub(r"ان\s+وائس", "انوائس", query)  # speech-to-text often splits this Urdu word
     r = _search(query, source, doc_type, limit)

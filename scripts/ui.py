@@ -300,8 +300,18 @@ class WelcomeWindow(QWidget):
                            f"QPushButton#pick{{padding:9px 18px;border:1px solid {P['line']};color:{P['fg']};background:transparent;font-family:'{BODY}';font-size:15px}}"
                            f"QPushButton#pick:checked{{border:1px solid {P['accent']};color:{P['accent']};background:transparent}}"
                            "QPushButton#go{font-size:13px;padding:13px 46px}")
-        self.setFixedWidth(600)
-        root = QVBoxLayout(self)
+        self.setFixedWidth(620)
+        from PySide6.QtWidgets import QScrollArea
+        content = QWidget()
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        self._content = content
+        root = QVBoxLayout(content)
         root.setContentsMargins(34, 16, 34, 14)
         root.setSpacing(9)
         logo = QLabel()
@@ -395,6 +405,25 @@ class WelcomeWindow(QWidget):
         grid.addWidget(self.src_wa)
         grid.addWidget(self.src_mail)
 
+        import deep_scan as _ds
+        self.scan_mode = "fast"
+        self.mode_btns = {}
+        mrow = QHBoxLayout()
+        for code, label in (("fast", "Fast search (recommended)"), ("light", "Light")):
+            b = QPushButton(label)
+            b.setObjectName("pick")
+            b.setCheckable(True)
+            b.setMinimumHeight(36)
+            b.clicked.connect(lambda _=False, c=code: self._pick_mode(c))
+            self.mode_btns[code] = b
+            mrow.addWidget(b)
+        mrow.addStretch()
+        grid.addLayout(mrow)
+        self.mode_note = _note(_ds.FAST_TEXT)
+        self.mode_note.setMinimumHeight(72)
+        grid.addWidget(self.mode_note)
+        self._pick_mode("fast")
+
         r3b = step(4, "WhatsApp (optional)", "")
         self.wa = QCheckBox("Link my WhatsApp now (one QR code scan). Read-only.")
         r3b.addWidget(self.wa, 1)
@@ -434,6 +463,17 @@ class WelcomeWindow(QWidget):
         adv.clicked.connect(self.more.emit)
         foot.addWidget(adv)
         root.addLayout(foot)
+        from PySide6.QtGui import QGuiApplication
+        scr = QGuiApplication.primaryScreen()
+        avail = scr.availableGeometry().height() if scr else 800
+        self.resize(620, min(content.sizeHint().height() + 4, int(avail * 0.92)))
+
+    def _pick_mode(self, code):
+        import deep_scan as _ds
+        self.scan_mode = code
+        for c, b in self.mode_btns.items():
+            b.setChecked(c == code)
+        self.mode_note.setText(_ds.FAST_TEXT if code == "fast" else _ds.LIGHT_TEXT)
 
     def _add_folder(self):
         from PySide6.QtWidgets import QFileDialog
@@ -464,7 +504,8 @@ class WelcomeWindow(QWidget):
                            "scan": self.consent.isChecked(),
                            "scan_folders": [b.property("path") for b in self.folder_boxes if b.isChecked()]
                            + getattr(self, "extra", []),
-                           "scan_whatsapp": self.src_wa.isChecked(), "scan_email": self.src_mail.isChecked()})
+                           "scan_whatsapp": self.src_wa.isChecked(), "scan_email": self.src_mail.isChecked(),
+                           "scan_mode": self.scan_mode})
         self.close()
 
 

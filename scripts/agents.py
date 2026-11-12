@@ -53,7 +53,7 @@ AGENTS = {
     "librarian": {
         "title": "Librarian", "job": "scan the computer and WhatsApp so every file's location is known; refresh "
                                      "every 12 hours",
-        "tools": ["scan_everything", "scan_status", "scan_settings", "scan_add_folder"],
+        "tools": ["scan_everything", "scan_status", "scan_settings", "scan_add_folder", "scan_mode"],
         "prompt": "You are the Librarian agent. Your only job: the scan that learns where every file is, its "
                   "schedule and its status. Never start a scan without the owner's clear yes."},
     "clerk": {
@@ -98,7 +98,7 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
               r"\b(phone|mobile)\b.*\b(connect|link|pair|app|status|connected)\b|فون.*(جوڑ|کنیکٹ|لنک)|"
               r"\b(phone|mobile) (se|par|pe)\b.*\b(jarvis|use|chala)"),
     ("keeper", r"\bback ?up\b|\bbackup\b|\brestore\b|بیک ?اپ"),
-    ("librarian", r"\bscan\b|\bscanning\b|refresh every|سکین|اسکین"),
+    ("librarian", r"\bscan\b|\bscanning\b|refresh every|سکین|اسکین|\b(fast search|light mode|scan mode)\b"),
     ("email", r"\be-?mails?\b|\binbox\b|\bdigest\b|\bmails?\b|ای ?میل|میل"),
     ("whatsapp", r"(whats ?app|واٹس ?ایپ).*(لنک|جوڑ|سنک)|\b(fetch|download)\b.*\bwhats ?app"),
     ("clerk", r"\b(delete|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),

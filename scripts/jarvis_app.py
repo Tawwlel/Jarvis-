@@ -419,7 +419,7 @@ def main():
                     cfg["file_roots"] = roots  # only the standard folders the owner ticked
                 save_config(cfg)
                 deep_scan.grant([f for f in picked if not (Path(f).name in base and Path(f).parent == _f.HOME)],
-                                v.get("scan_whatsapp", True), v.get("scan_email", True))
+                                v.get("scan_whatsapp", True), v.get("scan_email", True), v.get("scan_mode", "fast"))
 
                 def first_scan():
                     time.sleep(3)

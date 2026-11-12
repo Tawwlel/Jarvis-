@@ -54,11 +54,38 @@ def extra_folders() -> list[Path]:
     return [p for p in found if p.is_dir()]
 
 
-def grant(folders: list[str], whatsapp: bool = True, email: bool = True):
+FAST_TEXT = ("Fast search: I read every file once and keep a private list on this computer of where it is and what it "
+             "says. Searches are instant and use no AI credits. It uses some of the computer's power (CPU, and the "
+             "graphics card if there is one) while scanning, and a little afterwards.")
+LIGHT_TEXT = ("Light: I only remember where your files are. When you ask, I open the likely ones and read them then. "
+              "That uses less computer power and disk space, but answers are slower and use more AI credits.")
+
+
+def learn_mode() -> str:
+    """'fast' (read everything once, instant searches) or 'light' (only remember locations, read files when asked)."""
+    return "light" if _load().get("mode") == "light" else "fast"
+
+
+def set_mode(m: str):
+    st = _load()
+    st["mode"] = "light" if m == "light" else "fast"
+    _save(st)
+    if st["mode"] == "fast":
+        try:  # files remembered by name only get read on the next refresh
+            import docsearch
+            db = docsearch._db()
+            db.execute("UPDATE docs SET mtime=0 WHERE text='' OR text IS NULL")
+            db.commit()
+            db.close()
+        except Exception as e:
+            print("[scan] mode:", e)
+
+
+def grant(folders: list[str], whatsapp: bool = True, email: bool = True, scan_mode: str = "fast"):
     """The owner said yes in the welcome screen: remember which folders and sources Jarvis may read."""
     st = _load()
     st.update(allowed=True, chosen=[str(Path(f)) for f in folders], sources={"whatsapp": whatsapp, "email": email},
-              granted_at=time.time())
+              granted_at=time.time(), mode="light" if scan_mode == "light" else "fast")
     _save(st)
 
 
@@ -187,6 +214,20 @@ def scan_status():
             f"Last refresh: {when(st.get('last_sync', 0))}. Next: {nxt}. Refreshes every "
             f"{st.get('hours', DEFAULT_HOURS):g} hours. WhatsApp {'linked' if _wa_linked() else 'not linked'}. "
             f"Extra folders: {', '.join(st.get('folders', [])) or 'none'}.")
+
+
+@tool("scan_mode", "Choose how Jarvis learns the owner's files: 'fast' = read everything once and keep a private list on "
+                   "this computer (instant searches, no AI credits, uses some computer power while scanning); 'light' = only "
+                   "remember where files are and read them when asked (less computer power, slower, uses more AI credits). "
+                   "Call without a mode to explain the two and the current choice.",
+      {"mode": {"type": "string", "enum": ["fast", "light"]}}, [])
+def scan_mode(mode=None):
+    m = mode
+    if m not in ("fast", "light"):
+        return f"{FAST_TEXT}\n\n{LIGHT_TEXT}\n\nRight now: {learn_mode()}. Say 'use fast search' or 'use light mode' to change."
+    set_mode(m)
+    return ("Done: fast search. I'll read everything on the next refresh (say 'scan now' to start it)."
+            if m == "fast" else "Done: light mode. I'll remember where files are and read them when you ask.")
 
 
 @tool("scan_settings", "Change how often Jarvis refreshes what it knows (hours, 1 to 168; default 12).",
