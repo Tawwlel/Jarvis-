@@ -144,7 +144,7 @@ def enabled_tools(cfg: dict) -> list:
     import setup_guide  # noqa: F401  (registers setup_help)
     import agents  # noqa: F401  (registers ask_agent, agents_status)
     import phone_bridge  # noqa: F401  (registers phone_pair, phone_status, phone_forget)
-    import usage  # noqa: F401  (registers usage_status, usage_set_budget)
+    import usage  # noqa: F401  (registers usage_status, usage_redeem_code)
     if flags.get("documents", True):
         import deep_scan  # noqa: F401  (registers scan_* tools)
     groups = {

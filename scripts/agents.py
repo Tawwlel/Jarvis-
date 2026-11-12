@@ -67,7 +67,7 @@ AGENTS = {
         "prompt": "You are the Keeper agent. Your only job: backups of Jarvis."},
     "guide": {
         "title": "Guide", "job": "explain how to set up or connect anything, and change settings",
-        "tools": ["setup_help", "update_settings", "usage_status", "usage_set_budget"],
+        "tools": ["setup_help", "update_settings", "usage_status", "usage_redeem_code"],
         "prompt": "You are the Guide agent. Your only job: help the owner set Jarvis up, one step at a time, and "
                   "change settings. Never ask for passwords or keys in chat."},
     "phone": {

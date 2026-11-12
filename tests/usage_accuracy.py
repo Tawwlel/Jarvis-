@@ -15,10 +15,10 @@ usage.record("claude-haiku-5-5", 0, 1_000_000); check("1M haiku output = $0.50",
 usage.record("claude-haiku-5-5", 200_000, 0); check(">100K prompt costs x5", abs(usage.snapshot()["cost"] - (0.51 + 0.10)) < 1e-9)
 check("percent", usage.percent() == round(100 * 0.61 / 5, 1))
 check("not blocked", not usage.blocked())
-check("set budget", "0.5" in usage.usage_set_budget(0.5) and usage.blocked())
-check("bad budget refused", "doesn't look right" in usage.usage_set_budget(-4))
+check("set budget", (usage._set_budget(0.5) or True) and usage.blocked())
+check("bad budget refused", "isn't valid" in usage.redeem("JV-garbage.sig"))
 check("percent capped at 100", usage.percent() == 100.0)
-usage.usage_set_budget(5); check("unblocked after raise", not usage.blocked())
+usage._set_budget(5); check("unblocked after raise", not usage.blocked())
 # labels
 c = d.classify
 check("agreement not invoice", c("Transportation Services Agreement - WSA (4).pdf", "Invoice date payable within 30 days") == "agreement")
@@ -28,4 +28,8 @@ check("screenshot", c("Screenshot 2023-03-26 134952.png", "") == "screenshot")
 check("WhatsApp date from name", d.find_date("WhatsApp Image 2026-11-05 at 2.33.25 PM.jpeg", "", 1794400000) == "2026-11-05")
 check("camera date from name", d.find_date("IMG_20261111_101010.jpg", "", 0) == "2026-11-11")
 check("junk", all(d._junk(x) for x in ("~$Book.xlsx", "Thumbs.db", "ICON0.PNG")) and not d._junk("invoice.pdf"))
+c = "JV-eyJhIjogMTAuMCwgImlkIjogImE2ZWY1ZmFiZWI3ZCJ9.Dm4ha6dNg5PLl568UEYqpSZ_5IrGm3RuI2oTALWVfkQH9S_Yp8ywqXntwMyxDjhL2UsP_mHuVF9nDSxHhpJQBA"
+check("valid code raises allowance", "increased" in usage.redeem(c) and usage.snapshot()["budget"] == 10.0)
+check("code works once", "already" in usage.redeem(c))
+check("tampered code refused", "isn't valid" in usage.redeem(c[:-3] + "AAA"))
 print(f"{ok} ok, {bad} failed"); sys.exit(1 if bad else 0)

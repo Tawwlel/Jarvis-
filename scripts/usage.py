@@ -77,7 +77,7 @@ def record(model: str, inp: int, out: int, cached: int = 0):
             if note:
                 note(f"Heads up: usage is at {lvl} out of 100 this month." if lvl == 80 else
                      "This month's usage has reached 100 out of 100, so I'll answer only from your files until it's raised. "
-                     "Say 'raise my allowance to 10' to continue.")
+                     "Ask Apricot Digital for a top-up code to continue.")
 
 
 def percent(d: dict | None = None) -> float:
@@ -106,18 +106,43 @@ def usage_status():
             "It starts again from zero each month.")
 
 
-@tool("usage_set_budget", "Set the monthly usage allowance (a number, e.g. 10; the owner asks for it). Higher means more room.",
-      {"dollars": {"type": "number"}}, ["dollars"])
-def usage_set_budget(dollars):
-    try:
-        v = float(dollars)
-    except (TypeError, ValueError):
-        return "Tell me the allowance as a number, for example 10."
-    if not 0 < v <= 10000:
-        return "That doesn't look right. Give me a number between 1 and 10000."
+# Only Apricot Digital can raise the allowance: top-up codes are signed with a private key that never leaves the owner.
+# The public key below can check a code but cannot make one.
+_PUBLIC_KEY = "r1mc9K7igtaaT8dvwvTrsjlVX-P0u8kAN_lur6hsVJA="
+
+
+def _set_budget(v: float):
     with _lock:
         d = _load()
-        d["budget"] = v
+        d["budget"] = float(v)
         _save(d)
     _warned.clear()
-    return f"Done. Your monthly allowance is raised to {v:g}. You've used {percent():.0f} out of 100 so far."
+
+
+def redeem(code: str) -> str:
+    import base64
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    b64 = lambda x: base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
+    try:
+        body, sig = (code or "").strip().removeprefix("JV-").split(".")
+        Ed25519PublicKey.from_public_bytes(b64(_PUBLIC_KEY)).verify(b64(sig), b64(body))
+        info = json.loads(b64(body))
+        amount, cid = float(info["a"]), str(info["id"])
+    except (InvalidSignature, ValueError, KeyError, TypeError):
+        return "That code isn't valid. Please check it, or ask Apricot Digital for a new one."
+    with _lock:
+        d = _load()
+        if cid in d.setdefault("used_codes", []):
+            return "That code has already been used."
+        d["used_codes"].append(cid)
+        d["budget"] = amount
+        _save(d)
+    _warned.clear()
+    return f"Done. Your monthly usage allowance is increased. You've used {percent():.0f} out of 100 so far."
+
+
+@tool("usage_redeem_code", "Apply a usage top-up code that Apricot Digital gave the client (starts with JV-).",
+      {"code": {"type": "string"}}, ["code"])
+def usage_redeem_code(code):
+    return redeem(code)

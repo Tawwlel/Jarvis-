@@ -973,7 +973,7 @@ class ChatWindow(QWidget):
                 self.usage.setTextVisible(False)
                 self.usage.setFixedHeight(3)
                 self.usage.setFixedWidth(120)
-                self.usage.setToolTip("Usage this month, out of 100. Say 'raise my allowance to 10' for more room.")
+                self.usage.setToolTip("Usage this month, out of 100.")
                 h.addWidget(self.usage)
             h.addWidget(val)
             self.rows[key] = val
