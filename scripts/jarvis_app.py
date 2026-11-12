@@ -117,8 +117,17 @@ def main():
             except Exception:
                 pass
 
+    if sys.platform == "win32":
+        try:  # own identity for the taskbar: shows the Jarvis logo instead of Python's, and groups the windows
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ApricotDigital.Jarvis")
+        except Exception:
+            pass
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis by Apricot Digital")
+    from PySide6.QtGui import QIcon
+    if Path(LOGO).exists():
+        app.setWindowIcon(QIcon(LOGO))  # every window (chat, settings, history, phone) wears the logo
     app.setQuitOnLastWindowClosed(False)
 
     # Only one Jarvis at a time: a second copy would load every model again and run out of memory.
