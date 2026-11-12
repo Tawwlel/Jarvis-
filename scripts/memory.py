@@ -50,7 +50,7 @@ class Memory:
 
     def chat_recent(self, n: int = 40) -> list[tuple]:
         rows = self.db.execute("SELECT ts, role, content FROM chat_log ORDER BY ts DESC LIMIT ?", (n,)).fetchall()
-        return [(t, r, D(c)) for t, r, c in reversed(rows)]
+        return [(t, r, x) for t, r, c in reversed(rows) if not (x := D(c)).startswith("(unreadable")]
 
     def chat_days(self) -> list[tuple]:
         """[(YYYY-MM-DD, message count)], newest first."""

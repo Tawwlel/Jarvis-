@@ -729,6 +729,20 @@ class SettingsWindow(QWidget):
         self.close()
 
 
+def _ago(ts: float) -> str:
+    import time
+    if not ts:
+        return "never"
+    s = max(0, time.time() - ts)
+    if s < 90:
+        return "just now"
+    if s < 3600:
+        return f"{int(s // 60)} min ago"
+    if s < 86400:
+        return f"{int(s // 3600)} h ago"
+    return f"{int(s // 86400)} d ago"
+
+
 class HoloHeader(QWidget):
     """Top of the chat window: logo with a slow dotted ring, the headline, and the assistant's state."""
 
@@ -943,7 +957,7 @@ class ChatWindow(QWidget):
         super().__init__()
         self.memory, self._history_win = memory, None
         self.setWindowTitle(f"{name} by Apricot Digital")
-        self.resize(560, 760)
+        self.resize(560, 800)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 16)
         lay.setSpacing(8)
@@ -954,9 +968,9 @@ class ChatWindow(QWidget):
         box = QVBoxLayout()
         box.setContentsMargins(28, 0, 28, 0)
         box.setSpacing(0)
-        for i, (key, title) in enumerate([("files", "FILES KNOWN"), ("chats", "WHATSAPP CHATS SYNCED"), ("usage", "AI USAGE")]):
+        for i, (key, title) in enumerate([("files", "FILES KNOWN"), ("wa", "WHATSAPP LAST SYNCED"), ("pc", "PC LAST SYNCED"), ("usage", "AI USAGE")]):
             r = QWidget()
-            r.setStyleSheet(f"border-top:1px solid {P['line']};" + (f"border-bottom:1px solid {P['line']};" if i == 2 else ""))
+            r.setStyleSheet(f"border-top:1px solid {P['line']};" + (f"border-bottom:1px solid {P['line']};" if i == 3 else ""))
             h = QHBoxLayout(r)
             h.setContentsMargins(0, 7, 0, 7)
             idx = QLabel(f"[0{i + 1}]")
@@ -1066,24 +1080,34 @@ class ChatWindow(QWidget):
             import docsearch
             c = docsearch._db()
             self.rows["files"].setText(str(c.execute("select count(*) from docs").fetchone()[0]))
-            self.rows["chats"].setText(str(c.execute("select count(distinct chat) from docs where chat is not null and chat!=''").fetchone()[0]))
         except Exception:
             pass
+        import json
+        import time
+        data = _Path(__file__).parent.parent / "data"
+        for key, fn in (("wa", "wa_agent.json"), ("pc", "scan.json")):
+            try:
+                ts = float(json.loads((data / fn).read_text(encoding="utf-8")).get("last_sync") or 0)
+            except Exception:
+                ts = 0
+            self.rows[key].setText(_ago(ts))
+            self.rows[key].setToolTip(time.strftime("%d %b %Y, %I:%M %p", time.localtime(ts)) if ts else "Not synced yet")
 
     def _replay(self):
         """Show the latest earlier messages when the window opens, so the conversation never starts blank."""
         if not self.memory:
             return
         try:
-            old = self.memory.chat_recent(30)
+            old = self.memory.chat_recent(60)
         except Exception as e:
             print("[history]", e)
             return
         for ts, role, text in old:
             self.add(role, text, ts=ts, dim=True)
         if old:
-            self.log.append(f'<div style="color:{P["dim"]};font-family:{MONO};font-size:10px;margin:10px 0">'
+            self.log.append(f'<div style="color:{P["accent"]};font-family:{MONO};font-size:10px;margin:14px 0">'
                             '&mdash; earlier chats above &middot; use history for all of them &mdash;</div>')
+        self.log.verticalScrollBar().setValue(self.log.verticalScrollBar().maximum())
 
     def show_history(self):
         if not self.memory:
@@ -1110,11 +1134,10 @@ class ChatWindow(QWidget):
             self._asked_at = None  # later notices (scan progress) are not answers
         who, color = ("YOU", P["dim"]) if role == "user" else ("JARVIS", P["accent"])
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        if dim:
-            safe = f'<span style="color:{P["dim"]}">{safe}</span>'
         self.log.append(f'<div style="margin:10px 0">'
                         f'<span style="color:{color};font-family:{MONO};font-size:10px">{stamp}&nbsp;&nbsp;{who}</span>'
                         f'<br><span style="font-size:15px">{safe}</span></div>')
+        self.log.verticalScrollBar().setValue(self.log.verticalScrollBar().maximum())
 
     def _send(self):
         t = self.input.text().strip()
