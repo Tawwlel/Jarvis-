@@ -141,6 +141,7 @@ def enabled_tools(cfg: dict) -> list:
     import briefing  # noqa: F401  (registers update_settings)
     import backup  # noqa: F401  (registers backup_now)
     import setup_guide  # noqa: F401  (registers setup_help)
+    import agents  # noqa: F401  (registers ask_agent, agents_status)
     if flags.get("documents", True):
         import deep_scan  # noqa: F401  (registers scan_* tools)
     groups = {
@@ -154,7 +155,7 @@ def enabled_tools(cfg: dict) -> list:
         "files": [n for n in REGISTRY if n.startswith("file_")],
         "documents": [n for n in REGISTRY if n.startswith("doc_") or n.startswith("whatsapp_") or n.startswith("iphone_") or n.startswith("invoice_") or n == "learn_invoice_layout"],
     }
-    names = {"get_time", "remember_fact", "update_settings", "backup_now", "setup_help", "scan_everything", "scan_status", "scan_settings", "scan_add_folder"}
+    names = {"get_time", "remember_fact", "update_settings", "backup_now", "setup_help", "ask_agent", "agents_status", "scan_everything", "scan_status", "scan_settings", "scan_add_folder"}
     default_on = {"todos", "files", "documents", "email", "reminders"}
     for flag, tnames in groups.items():
         if flags.get(flag, flag in default_on):

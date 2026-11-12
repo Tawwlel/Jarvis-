@@ -77,6 +77,7 @@ class Brain:
         self.local = LocalLLM(self.models.get("tier0_local"))  # light: quick, simple answers
         self.local_heavy = LocalLLM(None)  # no heavy model: one small model keeps memory use low
         self._llm = None
+        self._last_agent = None  # (name, time): lets a short follow-up stay with the same agent
         self._local_ok = (0.0, False)
         self._heavy_ok = (0.0, False)
 
@@ -228,8 +229,13 @@ class Brain:
                         reply = self.local_answer(system, heavy=bool(HARD_HINTS.search(text))) or NO_KEY
                 else:
                     model = self.models["tier2_cloud"] if tier == "sonnet" else self.models["tier1_cloud"]
+                    import agents
+                    agent = agents.pick(text, self._last_agent)
+                    if agent == "operator" or (tier == "sonnet" and agents.tools_for("operator", self.tools)
+                                               and agent in ("jarvis", "finder")):
+                        agent = "operator"
                     try:
-                        reply = self._cloud(model, system, red)
+                        reply = self._cloud(model, system, red, agent)
                     except Exception as e:
                         print("[llm]", e)
                         reply = "I couldn't reach the language model. Check your internet connection and API key."
@@ -266,19 +272,43 @@ class Brain:
         return summary
 
     # ---------- the tool loop ----------
-    def _cloud(self, model: str, system: str, red: Redactor) -> str:
+    def _cloud(self, model: str, system: str, red: Redactor, agent: str = "jarvis") -> str:
+        """One agent answers, with only its own tools. The coordinator may hand over once with ask_agent."""
+        import agents
         messages = self._history()
-        schemas = [t["schema"] for t in self.tools] or None
+        base = system
         # Computer control needs many steps; everything else stays tightly capped.
-        max_steps = 30 if model == self.models["tier2_cloud"] else 6
+        max_steps = 30 if agent == "operator" else 7
+        handed = False
         for _ in range(max_steps):
+            mine = agents.tools_for(agent, self.tools)
+            if handed:  # an agent that received the work does it; it cannot pass it on again
+                mine = [t for t in mine if t["schema"]["name"] != "ask_agent"]
+            schemas = [t["schema"] for t in mine] or None
+            system = base + agents.prompt_for(agent, self.tools)
+            self._last_agent = (agent, time.time())
             self._prune_images(messages)
             res = self.llm.complete(model, red.redact(system), self._redacted(messages, red), schemas, 500)
             text = red.restore(res.text)
             if not res.tool_calls:
+                print(f"[agent] {agent}")
                 return text.strip()
             calls = [{"id": c["id"], "name": c["name"], "input": red.restore_obj(c["input"])}
                      for c in res.tool_calls]
+            hand = next((c for c in calls if c["name"] == "ask_agent"), None)
+            if hand:  # switch agent and let it start clean with the same conversation
+                target = str(hand["input"].get("agent", "")).strip().lower()
+                if not handed and target in agents.AGENTS and target != agent and agents.tools_for(target, self.tools):
+                    agent, handed = target, True
+                    continue
+                handed = True
+                calls = [c for c in calls if c["name"] != "ask_agent"]
+                if not calls:
+                    continue
+            allowed = {t["schema"]["name"] for t in mine}
+            calls = [c for c in calls if c["name"] in allowed]  # an agent can only use its own tools
+            if not calls:
+                continue
             messages.append({"role": "assistant", "text": text, "tool_calls": calls})
             results = []
             for c in calls:

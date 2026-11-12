@@ -109,19 +109,13 @@ def run_scan(cfg: dict, full: bool = True) -> str:
         with docsearch._index_lock:
             docsearch.reindex(cfg, include_computer=True, include_whatsapp=False,
                               progress=lambda n: tick(f"Computer: read {n} files so far..."))
-        if _wa_linked():
-            import whatsapp_reader as wa
-            if full:
-                notify("Now WhatsApp: going through every chat (this part is slower)...")
-                r = wa.sync(deep=True, progress=lambda i, n, name: tick(f"WhatsApp: chat {i} of {n} ({name})..."))
-            else:
-                r = wa.sync(per_chat=100, chat_limit=40)
-            if "busy" in r:
-                notify("WhatsApp was busy, so I'll do that part next time.")
-            with docsearch._index_lock:
-                docsearch.reindex(cfg, include_computer=False, include_whatsapp=True,
-                                  progress=lambda n: tick(f"WhatsApp: read {n} files so far..."))
-        elif full:
+        import whatsapp_agent  # WhatsApp is the WhatsApp agent's job: ask it, don't do it here
+        if _wa_linked() and full:
+            notify("Now the WhatsApp agent goes through every chat (this part is slower)...")
+        state = whatsapp_agent.scan(cfg, full, tick)
+        if state == "busy":
+            notify("WhatsApp was busy, so that part will be done next time.")
+        elif state == "not linked" and full:
             notify("WhatsApp isn't linked yet, so I scanned the computer only. Say 'link WhatsApp' to add it.")
         threading.Thread(target=docsearch._vectors, daemon=True).start()
         st = _load()

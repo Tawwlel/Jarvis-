@@ -70,6 +70,21 @@ def run_once(cfg: dict, notify=None) -> list[dict]:
     return new
 
 
+def scan(cfg: dict, full: bool, tick=None) -> str:
+    """The WhatsApp agent's part of a scan: every chat with full history (full) or the recent chats (refresh).
+    The Librarian asks for this; only this agent touches WhatsApp."""
+    if not wa.PROFILE.exists():
+        return "not linked"
+    if full:
+        r = wa.sync(deep=True, progress=(lambda i, n, name: tick(f"WhatsApp: chat {i} of {n} ({name})...")) if tick else None)
+    else:
+        r = wa.sync(per_chat=100, chat_limit=40)
+    with _lock:
+        docsearch.reindex(cfg, include_computer=False, include_whatsapp=True,
+                          progress=(lambda n: tick(f"WhatsApp: read {n} files so far...")) if tick else None)
+    return "busy" if "busy" in r else "ok"
+
+
 class WhatsAppAgent(threading.Thread):
     def __init__(self, cfg: dict, notify):
         super().__init__(daemon=True, name="whatsapp-agent")
