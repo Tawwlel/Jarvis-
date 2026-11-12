@@ -12,7 +12,7 @@ import re
 from PySide6.QtCore import (QObject, QPointF, QPropertyAnimation, QRectF, Qt, QTime, QTimer, Signal)
 from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap,
                            QRadialGradient)
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QListWidgetItem, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMenu, QPushButton, QSystemTrayIcon, QTabWidget,
                                QTextBrowser, QTimeEdit, QVBoxLayout, QWidget)
 
@@ -32,7 +32,15 @@ class Bridge(QObject):
     def hide_later(self, ms=2500): self.hide_sig.emit(ms)
     def state(self, s): self.state_sig.emit(s)
     def level(self, v): self.level_sig.emit(float(v))
-    def chat(self, role, text): self.chat_sig.emit(role, text)
+    recorder = None  # set by the app: saves every chat line for the history view
+
+    def chat(self, role, text):
+        if self.recorder:
+            try:
+                self.recorder(role, text)
+            except Exception as e:
+                print("[history]", e)
+        self.chat_sig.emit(role, text)
 
 
 class Overlay(QWidget):
@@ -725,12 +733,87 @@ class HoloHeader(QWidget):
         p.drawText(QRectF(w - 258, h - 28, 240, 20), Qt.AlignRight, STATE_TEXT.get(self.state, "") or "STANDING BY")
 
 
+class HistoryWindow(QWidget):
+    """All earlier chats: pick a day on the left, or search every message."""
+
+    def __init__(self, memory):
+        super().__init__()
+        from PySide6.QtWidgets import QLineEdit, QListWidget, QTextBrowser
+        self.memory = memory
+        self.setWindowTitle("Chat history")
+        self.setStyleSheet(QSS)
+        self.resize(820, 600)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search all chats...  e.g. Khan Traders")
+        self.search.returnPressed.connect(self._find)
+        clear = QPushButton("ALL DAYS")
+        clear.clicked.connect(lambda: (self.search.clear(), self.refresh()))
+        top = QHBoxLayout()
+        top.addWidget(self.search, 1)
+        top.addWidget(clear)
+        self.days = QListWidget()
+        self.days.setMaximumWidth(230)
+        self.days.currentItemChanged.connect(self._open_day)
+        self.view = QTextBrowser()
+        body = QHBoxLayout()
+        body.addWidget(self.days)
+        body.addWidget(self.view, 1)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.addLayout(top)
+        lay.addLayout(body, 1)
+
+    @staticmethod
+    def _html(rows, with_date=False) -> str:
+        import datetime as _dt
+        out = []
+        for ts, role, text in rows:
+            t = _dt.datetime.fromtimestamp(ts)
+            stamp = t.strftime(("%d %b " if with_date else "") + "%I:%M:%S %p").lstrip("0")
+            who, color = ("YOU", "#b98e68") if role == "user" else ("JARVIS", "#ffb347")
+            safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+            border = "#ff6b57" if role != "user" else "#5a2a1c"
+            out.append(f'<div style="border-left:3px solid {border};margin:8px 0;padding-left:10px">'
+                       f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span>'
+                       f'<span style="color:#8a6a55;font-size:10px">&nbsp;&nbsp;{stamp}</span><br>{safe}</div>')
+        return "".join(out) or '<p style="color:#8a6a55">Nothing here yet.</p>'
+
+    def refresh(self):
+        import datetime as _dt
+        self.days.blockSignals(True)
+        self.days.clear()
+        for day, n in self.memory.chat_days():
+            label = _dt.date.fromisoformat(day).strftime("%a %d %b %Y")
+            item = QListWidgetItem(f"{label}  ({n})")
+            item.setData(Qt.UserRole, day)
+            self.days.addItem(item)
+        self.days.blockSignals(False)
+        if self.days.count():
+            self.days.setCurrentRow(0)
+            self._open_day(self.days.item(0), None)
+        else:
+            self.view.setHtml(self._html([]))
+
+    def _open_day(self, item, _prev):
+        if item is not None:
+            self.view.setHtml(self._html(self.memory.chat_on(item.data(Qt.UserRole))))
+
+    def _find(self):
+        q = self.search.text().strip()
+        if not q:
+            return self.refresh()
+        rows = self.memory.chat_search(q)
+        head = f'<p style="color:#ffb347">{len(rows)} message(s) containing "{q}", newest first</p>'
+        self.view.setHtml(head + self._html(rows, with_date=True))
+
+
 class ChatWindow(QWidget):
     """The command window: holographic header, conversation, and a message bar. Spoken chats show up here too."""
     submitted = Signal(str, bool)
 
-    def __init__(self, bridge: Bridge, name: str):
+    def __init__(self, bridge: Bridge, name: str, memory=None):
         super().__init__()
+        self.memory, self._history_win = memory, None
         self.setWindowTitle(f"{name} by Apricot Digital")
         self.setStyleSheet(QSS)
         self.resize(560, 720)
@@ -746,9 +829,13 @@ class ChatWindow(QWidget):
         self.speak = QCheckBox("Speak replies aloud")
         send = QPushButton("SEND")
         send.clicked.connect(self._send)
+        hist = QPushButton("HISTORY")
+        hist.setToolTip("See all your earlier chats")
+        hist.clicked.connect(self.show_history)
         row = QHBoxLayout()
         row.setContentsMargins(14, 0, 14, 0)
         row.addWidget(self.input, 1)
+        row.addWidget(hist)
         row.addWidget(send)
         body = QHBoxLayout()
         body.setContentsMargins(14, 0, 14, 0)
@@ -759,16 +846,43 @@ class ChatWindow(QWidget):
         chk.setContentsMargins(14, 0, 14, 0)
         chk.addWidget(self.speak)
         lay.addLayout(chk)
+        self._replay()
         bridge.chat_sig.connect(self.add)
 
-    def add(self, role: str, text: str):
+    def _replay(self):
+        """Show the latest earlier messages when the window opens, so the conversation never starts blank."""
+        if not self.memory:
+            return
+        try:
+            old = self.memory.chat_recent(30)
+        except Exception as e:
+            print("[history]", e)
+            return
+        for ts, role, text in old:
+            self.add(role, text, ts=ts, dim=True)
+        if old:
+            self.log.append('<div style="color:#8a6a55;font-size:10px;letter-spacing:3px;margin:10px 0">'
+                            '&mdash;&mdash; EARLIER CHATS ABOVE &middot; USE HISTORY FOR ALL OF THEM &mdash;&mdash;</div>')
+
+    def show_history(self):
+        if not self.memory:
+            return
+        if self._history_win is None:
+            self._history_win = HistoryWindow(self.memory)
+        self._history_win.refresh()
+        self._history_win.show()
+        self._history_win.raise_()
+
+    def add(self, role: str, text: str, ts: float | None = None, dim: bool = False):
         import datetime as _dt
-        now = _dt.datetime.now()
+        now = _dt.datetime.fromtimestamp(ts) if ts else _dt.datetime.now()
         stamp = now.strftime("%I:%M:%S %p").lstrip("0")
-        if getattr(self, "_last_day", now.date()) != now.date():
+        if dim or getattr(self, "_last_day", now.date()) != now.date():
             stamp = now.strftime("%d %b ") + stamp
         self._last_day = now.date()
-        if role == "user":
+        if dim:
+            pass  # earlier chats: no "answered in"
+        elif role == "user":
             self._asked_at = now  # the clock for "answered in"
         elif getattr(self, "_asked_at", None):
             stamp += f"  ·  answered in {(now - self._asked_at).total_seconds():.0f}s"
@@ -776,6 +890,9 @@ class ChatWindow(QWidget):
         who, color = ("YOU", "#b98e68") if role == "user" else ("JARVIS", "#ffb347")
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
         card = "border-left:3px solid #ff6b57;" if role != "user" else "border-left:3px solid #5a2a1c;"
+        if dim:
+            card += "opacity:0.6;"
+            safe = f'<span style="color:#a08a78">{safe}</span>' 
         self.log.append(f'<div style="{card}margin:8px 0;padding-left:10px">'
                         f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span>'
                         f'<span style="color:#8a6a55;font-size:10px">&nbsp;&nbsp;{stamp}</span><br>{safe}</div>')
@@ -788,7 +905,7 @@ class ChatWindow(QWidget):
 
 
 def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_selftest=None, on_speedtest=None,
-              on_ask=None):
+              on_ask=None, on_history=None):
     tray = QSystemTrayIcon(QIcon(logo_path), app)
     tray.setToolTip(f"{name} by Apricot Digital")
     menu = QMenu()
@@ -801,6 +918,7 @@ def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_s
                   ("Back up Jarvis now", lambda: on_ask("tool:backup_now")),
                   ("Scan everything now", lambda: on_ask("tool:scan_everything")),
                   ("Show my agents", lambda: on_ask("tool:agents_status")),
+                  *([("Chat history", on_history)] if on_history else []),
                   ("Help me set up Jarvis", lambda: on_ask("tool:setup_help"))]
     if on_selftest:
         items.append(("Run document test", on_selftest))

@@ -159,6 +159,7 @@ def main():
     cfg = load_config()
     mem = Memory()
     bridge = Bridge()
+    bridge.recorder = mem.add_chat  # every chat line is kept, so all earlier chats can be read later
     name = lambda: (cfg.get("assistant_names") or ["Jarvis"])[0]
     overlay = Overlay(bridge, LOGO, name, cfg.get("overlay_corner", "bottom-right"),
                       cfg.get("overlay_caption", True))
@@ -177,7 +178,7 @@ def main():
 
     def open_chat():
         if keep["chat"] is None:
-            keep["chat"] = ChatWindow(bridge, name())
+            keep["chat"] = ChatWindow(bridge, name(), mem)
             keep["chat"].submitted.connect(
                 lambda t, sp: keep["assistant"].submit_text(t, sp) if keep["assistant"]
                 else keep["chat"].add("assistant", "One moment, I'm still starting up."))
@@ -262,7 +263,8 @@ def main():
                 else:
                     keep["chat"].add("assistant", "One moment, I'm still starting up.")
             keep["tray"] = make_tray(app, LOGO, name(), ask, open_chat, lambda: open_settings(False), app.quit,
-                                     on_selftest=run_selftest, on_speedtest=run_speedtest, on_ask=tray_ask)
+                                     on_selftest=run_selftest, on_speedtest=run_speedtest, on_ask=tray_ask,
+                                     on_history=lambda: (open_chat(), keep["chat"].show_history()))
         open_chat()
         threading.Thread(target=work, daemon=True).start()
         if not keep.get("backup_agent"):

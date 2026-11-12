@@ -11,6 +11,8 @@ from secrets_store import decrypt_text as D
 from secrets_store import encrypt_text as E
 
 DB = Path(__file__).parent.parent / "jarvis_memory.db"
+import threading
+_chat_lock = threading.Lock()
 INTERNAL_FACTS = {"last_brief_date"}  # bookkeeping, not shown to the model
 
 
@@ -21,6 +23,8 @@ class Memory:
         self.db.executescript(
             """
             CREATE TABLE IF NOT EXISTS messages(ts REAL, role TEXT, content TEXT);
+            CREATE TABLE IF NOT EXISTS chat_log(ts REAL, role TEXT, content TEXT);
+            CREATE INDEX IF NOT EXISTS chat_log_ts ON chat_log(ts);
             CREATE TABLE IF NOT EXISTS facts(key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY, due REAL, text TEXT, done INTEGER DEFAULT 0);
             CREATE TABLE IF NOT EXISTS notes(ts REAL, meeting TEXT, kind TEXT, text TEXT);
@@ -37,6 +41,39 @@ class Memory:
         rows = self.db.execute(
             "SELECT role, content FROM messages ORDER BY ts DESC LIMIT ?", (n,)).fetchall()
         return [{"role": r, "content": D(c)} for r, c in reversed(rows)]
+
+    # ---- chat history: everything shown in the chat window, kept for good (encrypted) ----
+    def add_chat(self, role: str, text: str, ts: float | None = None):
+        with _chat_lock:
+            self.db.execute("INSERT INTO chat_log VALUES(?,?,?)", (ts or time.time(), role, E(text)))
+            self.db.commit()
+
+    def chat_recent(self, n: int = 40) -> list[tuple]:
+        rows = self.db.execute("SELECT ts, role, content FROM chat_log ORDER BY ts DESC LIMIT ?", (n,)).fetchall()
+        return [(t, r, D(c)) for t, r, c in reversed(rows)]
+
+    def chat_days(self) -> list[tuple]:
+        """[(YYYY-MM-DD, message count)], newest first."""
+        rows = self.db.execute("SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') d, COUNT(*) FROM chat_log "
+                               "GROUP BY d ORDER BY d DESC").fetchall()
+        return [(d, n) for d, n in rows]
+
+    def chat_on(self, day: str) -> list[tuple]:
+        rows = self.db.execute("SELECT ts, role, content FROM chat_log WHERE "
+                               "strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime')=? ORDER BY ts", (day,)).fetchall()
+        return [(t, r, D(c)) for t, r, c in rows]
+
+    def chat_search(self, query: str, limit: int = 200) -> list[tuple]:
+        """Newest first. The text is encrypted, so matching happens here, not in SQL."""
+        q = query.lower().strip()
+        out = []
+        for t, r, c in self.db.execute("SELECT ts, role, content FROM chat_log ORDER BY ts DESC"):
+            text = D(c)
+            if q in text.lower():
+                out.append((t, r, text))
+                if len(out) >= limit:
+                    break
+        return out
 
     # ---- facts / profile ----
     def remember(self, key: str, value: str):
