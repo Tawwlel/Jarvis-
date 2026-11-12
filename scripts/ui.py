@@ -358,11 +358,48 @@ class WelcomeWindow(QWidget):
         self.key.setPlaceholderText("Paste your key here (starts with sk-ant-)")
         r2.addWidget(self.key, 1)
 
-        r3 = step(3, "WhatsApp (optional)", "")
-        self.wa = QCheckBox("Link my WhatsApp now (one QR code scan). Read-only.")
-        r3.addWidget(self.wa, 1)
+        r3 = step(3, "Let Jarvis find your documents", "Jarvis remembers where each file is and what it says, in a private "
+                  "list on this computer, so it can find any invoice in seconds. Your files are only read: never "
+                  "copied, changed, sent or deleted.")
+        grid = QVBoxLayout()
+        grid.setSpacing(7)
+        r3.addLayout(grid, 1)
+        self.consent = QCheckBox("Yes, I allow Jarvis to read the folders I tick below")
+        self.consent.setChecked(True)
+        grid.addWidget(self.consent)
+        self.folder_boxes = []
+        import files as _files
+        home = _files.HOME
+        cand = [home / n for n in ("Documents", "Desktop", "Downloads", "Pictures")] + sorted(home.glob("OneDrive*"))
+        frow = QHBoxLayout()
+        for pth in [c for c in cand if c.is_dir()]:
+            cb = QCheckBox(pth.name)
+            cb.setChecked(pth.name != "Pictures")
+            cb.setProperty("path", str(pth))
+            self.folder_boxes.append(cb)
+            frow.addWidget(cb)
+        frow.addStretch()
+        add = QPushButton("+ Add folder")
+        add.setObjectName("ghost")
+        add.setMinimumSize(100, 28)
+        add.clicked.connect(self._add_folder)
+        frow.addWidget(add)
+        grid.addLayout(frow)
+        self.extra_lbl = QLabel("")
+        self.extra_lbl.setObjectName("sub")
+        grid.addWidget(self.extra_lbl)
+        self.src_wa = QCheckBox("Also WhatsApp files (after the WhatsApp step below)")
+        self.src_wa.setChecked(True)
+        self.src_mail = QCheckBox("Also attachments in my email (if email is connected)")
+        self.src_mail.setChecked(True)
+        grid.addWidget(self.src_wa)
+        grid.addWidget(self.src_mail)
 
-        r4 = step(4, "Backup (recommended)", "A locked daily copy of your settings and notes. Don't forget this password.")
+        r3b = step(4, "WhatsApp (optional)", "")
+        self.wa = QCheckBox("Link my WhatsApp now (one QR code scan). Read-only.")
+        r3b.addWidget(self.wa, 1)
+
+        r4 = step(5, "Backup (recommended)", "A locked daily copy of your settings and notes. Don't forget this password.")
         self.bk_email = QLineEdit()
         self.bk_email.setPlaceholderText("Your email, for backups")
         self.bk_pw = QLineEdit()
@@ -398,6 +435,13 @@ class WelcomeWindow(QWidget):
         foot.addWidget(adv)
         root.addLayout(foot)
 
+    def _add_folder(self):
+        from PySide6.QtWidgets import QFileDialog
+        d = QFileDialog.getExistingDirectory(self, "Choose a folder for Jarvis to read")
+        if d:
+            self.extra = getattr(self, "extra", []) + [d]
+            self.extra_lbl.setText("Also: " + ", ".join(Path(x).name for x in self.extra))
+
     def _pick(self, code):
         self.language = code
         for c, b in self.langs.items():
@@ -416,7 +460,11 @@ class WelcomeWindow(QWidget):
             self.warn.setText("The backup password needs at least 6 characters.")
             return
         self.started.emit({"owner_name": self.name.text().strip(), "language": self.language, "key": key,
-                           "link_whatsapp": self.wa.isChecked(), "backup_email": mail, "backup_password": bpw})
+                           "link_whatsapp": self.wa.isChecked(), "backup_email": mail, "backup_password": bpw,
+                           "scan": self.consent.isChecked(),
+                           "scan_folders": [b.property("path") for b in self.folder_boxes if b.isChecked()]
+                           + getattr(self, "extra", []),
+                           "scan_whatsapp": self.src_wa.isChecked(), "scan_email": self.src_mail.isChecked()})
         self.close()
 
 

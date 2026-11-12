@@ -45,11 +45,25 @@ def extra_folders() -> list[Path]:
     st = _load()
     if not st.get("allowed"):
         return []
+    if "chosen" in st:  # picked in the welcome screen: exactly these folders, nothing automatic
+        return [Path(p) for p in st["chosen"] if Path(p).is_dir()]
     import files
     home = files.HOME
     found = [home / "Pictures"] + sorted(home.glob("OneDrive*"))
     found += [Path(p) for p in st.get("folders", [])]
     return [p for p in found if p.is_dir()]
+
+
+def grant(folders: list[str], whatsapp: bool = True, email: bool = True):
+    """The owner said yes in the welcome screen: remember which folders and sources Jarvis may read."""
+    st = _load()
+    st.update(allowed=True, chosen=[str(Path(f)) for f in folders], sources={"whatsapp": whatsapp, "email": email},
+              granted_at=time.time())
+    _save(st)
+
+
+def source_ok(name: str) -> bool:
+    return _load().get("sources", {}).get(name, True)
 
 
 def offer() -> str:
@@ -112,14 +126,14 @@ def run_scan(cfg: dict, full: bool = True) -> str:
         import whatsapp_agent  # WhatsApp is the WhatsApp agent's job: ask it, don't do it here
         if _wa_linked() and full:
             notify("Now the WhatsApp agent goes through every chat (this part is slower)...")
-        state = whatsapp_agent.scan(cfg, full, tick)
+        state = whatsapp_agent.scan(cfg, full, tick) if source_ok("whatsapp") else "skipped"
         if state == "busy":
             notify("WhatsApp was busy, so that part will be done next time.")
         elif state == "not linked" and full:
             notify("WhatsApp isn't linked yet, so I scanned the computer only. Say 'link WhatsApp' to add it.")
         try:
             import email_agent
-            n = email_agent.sync_attachments(cfg, days=180 if full else 14)
+            n = email_agent.sync_attachments(cfg, days=180 if full else 14) if source_ok("email") else None
             if n is not None:
                 with docsearch._index_lock:
                     docsearch.reindex(cfg, include_computer=False, include_whatsapp=False)

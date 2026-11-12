@@ -10,6 +10,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -408,6 +409,28 @@ def main():
             hello = (f"\u062e\u0648\u0634 \u0622\u0645\u062f\u06cc\u062f {who}\u06d4 \u0645\u06cc\u06ba \u062a\u06cc\u0627\u0631 \u06c1\u0648\u06ba\u06d4"
                      if v["language"] == "ur" else f"All set, {who}. Say hey {name()} whenever you need me.")
             start_assistant(hello)
+            if v.get("scan"):
+                import deep_scan
+                base = {"Documents", "Desktop", "Downloads"}
+                import files as _f
+                picked = v.get("scan_folders", [])
+                roots = [f for f in picked if Path(f).name in base and Path(f).parent == _f.HOME]
+                if roots:
+                    cfg["file_roots"] = roots  # only the standard folders the owner ticked
+                save_config(cfg)
+                deep_scan.grant([f for f in picked if not (Path(f).name in base and Path(f).parent == _f.HOME)],
+                                v.get("scan_whatsapp", True), v.get("scan_email", True))
+
+                def first_scan():
+                    time.sleep(3)
+                    bridge.chat("assistant", "Thank you. I'm learning where your documents are now. You can keep "
+                                             "working; I'll tell you when it's done.")
+                    try:
+                        deep_scan.run_scan(cfg, full=True)
+                        bridge.chat("assistant", deep_scan._summary("All done."))
+                    except Exception as e:
+                        bridge.chat("assistant", f"The scan stopped: {e}")
+                keep["first_scan"] = first_scan
             if v["link_whatsapp"]:
                 def link():
                     try:
@@ -417,10 +440,14 @@ def main():
                         msg = whatsapp_reader.link()
                         bridge.chat("assistant", msg + (" I'm collecting your documents in the background now."
                                                         if "linked" in msg else ""))
+                        if keep.get("first_scan"):
+                            keep.pop("first_scan")()
                     except Exception as e:
                         bridge.chat("assistant", f"WhatsApp could not be linked just now ({e}). You can try again from "
                                                  "the Jarvis icon near the clock: Link WhatsApp.")
                 threading.Thread(target=link, daemon=True).start()
+            elif keep.get("first_scan"):
+                threading.Thread(target=keep.pop("first_scan"), daemon=True).start()
 
         def do_restore():
             from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox
