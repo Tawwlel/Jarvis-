@@ -91,7 +91,7 @@ SHARED = ("To the owner you are simply Jarvis: never mention agents, never say '
 
 RULES = [  # first match wins; anything unmatched goes to the coordinator, who can hand it over
     ("jarvis", r"\bagents?\b|\bbots?\b|what can you do|ایجنٹ"),
-    ("guide", r"\b(usage|budget|api cost|cost so far)\b|how much (have i|did i) (used|spent)|\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
+    ("guide", r"\b(usage|budget|allowance|api cost|cost so far)\b|how much (have i|did i) (used|spent)|\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
               r"set|laga|kar)|settings?\b|سیٹ ?اپ|سیٹپ|کیسے (کنیکٹ|لنک)"),
     ("whatsapp", r"\biphone\b"),  # "iphone backup import" is the WhatsApp agent's, not the Keeper's
     ("phone", r"\b(connect|link|pair|add|set ?up|disconnect|forget|remove)\b.*\b(phone|mobile|iphone app|app)\b|"

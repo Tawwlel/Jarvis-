@@ -930,7 +930,7 @@ class ChatWindow(QWidget):
         ("PHONE", "phone", "Connect my phone to Jarvis"),
         ("EMAIL", "Give me my email digest.", "Check my email"),
         ("BACKUP", "tool:backup_now", "Back up Jarvis now"),
-        ("USAGE", "tool:usage_status", "How much of this month's AI budget is used"),
+        ("USAGE", "tool:usage_status", "How much of this month's usage is used, out of 100"),
         ("FEATURES", "What can you do? List your features and give me an example of each.", "What Jarvis can do"),
         ("HELP", "tool:setup_help", "Step-by-step setup help"),
         ("SETTINGS", "settings", "Change voice, name, folders and more"),
@@ -973,7 +973,7 @@ class ChatWindow(QWidget):
                 self.usage.setTextVisible(False)
                 self.usage.setFixedHeight(3)
                 self.usage.setFixedWidth(120)
-                self.usage.setToolTip("This month's AI budget used (estimate). Say 'set my budget to 10 dollars' to change it.")
+                self.usage.setToolTip("Usage this month, out of 100. Say 'raise my allowance to 10' for more room.")
                 h.addWidget(self.usage)
             h.addWidget(val)
             self.rows[key] = val
@@ -1059,7 +1059,7 @@ class ChatWindow(QWidget):
             sn = usage.snapshot()
             pct = int(round(sn["percent"]))
             self.usage.setValue(pct)
-            self.rows["usage"].setText(f"{pct}% \u00b7 ${sn['cost']:.2f}")
+            self.rows["usage"].setText(f"{pct} / 100")
         except Exception:
             self.rows["usage"].setText("-")
         try:

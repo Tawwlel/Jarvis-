@@ -15,7 +15,7 @@ usage.record("claude-haiku-5-5", 0, 1_000_000); check("1M haiku output = $0.50",
 usage.record("claude-haiku-5-5", 200_000, 0); check(">100K prompt costs x5", abs(usage.snapshot()["cost"] - (0.51 + 0.10)) < 1e-9)
 check("percent", usage.percent() == round(100 * 0.61 / 5, 1))
 check("not blocked", not usage.blocked())
-check("set budget", "$0.50" in usage.usage_set_budget(0.5) and usage.blocked())
+check("set budget", "0.5" in usage.usage_set_budget(0.5) and usage.blocked())
 check("bad budget refused", "doesn't look right" in usage.usage_set_budget(-4))
 check("percent capped at 100", usage.percent() == 100.0)
 usage.usage_set_budget(5); check("unblocked after raise", not usage.blocked())
