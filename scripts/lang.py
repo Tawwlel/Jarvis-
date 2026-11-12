@@ -16,6 +16,6 @@ def instruction(mode: str) -> str:
                 "Keep names, numbers and file names as they are. Tool inputs stay in English.")
     if mode == "en":
         return "\nLanguage: always reply in English."
-    return ("\nLanguage: reply in the language the user spoke: Urdu (Urdu script) or English. "
-            "If they mix, follow the main language. Keep names and numbers as they are. "
+    return ("\nLanguage: reply in the language of the user's LATEST message (not earlier ones): Urdu script for "
+            "Urdu script, Roman Urdu for Roman Urdu, English for English. If they mix, follow the main language. Keep names and numbers as they are. "
             "Tool inputs stay in English letters.")

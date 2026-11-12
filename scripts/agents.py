@@ -80,7 +80,12 @@ AGENTS = {
         "prompt": ""},
 }
 
+SHARED = ("To the owner you are simply Jarvis: never mention agents, never say 'that is not my job', and never "
+          "comment on or correct earlier replies in this conversation - they came from Jarvis's other agents and "
+          "are true. If the request is outside your tools, call ask_agent to pass it to the right agent.")
+
 RULES = [  # first match wins; anything unmatched goes to the coordinator, who can hand it over
+    ("jarvis", r"\bagents?\b|\bbots?\b|what can you do|ایجنٹ"),
     ("guide", r"\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
               r"set|laga|kar)|settings?\b|سیٹ ?اپ|سیٹپ|کیسے (کنیکٹ|لنک)"),
     ("keeper", r"\bback ?up\b|\bbackup\b|\brestore\b|بیک ?اپ"),
@@ -88,7 +93,7 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
     ("email", r"\be-?mails?\b|\binbox\b|\bdigest\b|\bmails?\b|ای ?میل|میل"),
     ("whatsapp", r"(whats ?app|واٹس ?ایپ).*\b(link|sync|check|import|new|naye|fetch|connect|linked|how much|kitn\w*|"
                  r"paid?|says?|written|likha)\b|\b(link|sync|check|import|connect|how much|kitn\w*|paid?|written|likha)\b"
-                 r".*(whats ?app|واٹس ?ایپ)|\biphone\b"),
+                 r".*(whats ?app|واٹس ?ایپ)|\b(new|naye|came|arrived|aaye?)\b.*(whats ?app|واٹس ?ایپ)|\biphone\b"),
     ("accounts", r"\btotals?\b|\bkul\b|\bsum\b|\bhow much\b|\bkitn[aie]\b|\badd up\b|\bkitn[ie] sales\b|\btax\b|\blayout\b|\binvoice details\b|"
                  r"\bdetails of\b|کل رقم|ٹوٹل"),
     ("organizer", r"\bremind\w*\b|yaad dila|\bto-?dos?\b|\btasks?\b|\bnotes?\b|\bcalendar\b|\bmeetings?\b|"
@@ -135,13 +140,14 @@ def tools_for(agent: str, enabled: list) -> list:
 
 def prompt_for(agent: str, enabled: list) -> str:
     if agent != "jarvis":
-        return "\n" + AGENTS[agent]["prompt"] + (" If the request is not your job, say which agent it belongs to "
-                                                  "in one short sentence instead of guessing.")
+        return ("\n" + AGENTS[agent]["prompt"] + " " + SHARED)
     have = {t["schema"]["name"] for t in enabled}
     lines = [f"- {n}: {a['job']}" for n, a in AGENTS.items()
              if n != "jarvis" and any(t in have for t in owned(n))]
     return ("\nYou are the coordinator. You do small talk, the time and remembering facts yourself. Anything else "
-            "belongs to exactly one agent: hand it over with ask_agent and do not try to do it yourself.\n"
+            "belongs to exactly one agent: hand it over with ask_agent and do not try to do it yourself. Earlier "
+            "replies in this conversation came from your agents and are true. Use agents_status when the owner "
+            "asks about the agents or what you can do.\n"
             "Agents:\n" + "\n".join(lines))
 
 

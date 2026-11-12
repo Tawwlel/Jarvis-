@@ -284,6 +284,8 @@ class Brain:
             mine = agents.tools_for(agent, self.tools)
             if handed:  # an agent that received the work does it; it cannot pass it on again
                 mine = [t for t in mine if t["schema"]["name"] != "ask_agent"]
+            elif agent != "jarvis":  # the first agent may pass a misrouted request on, once
+                mine = mine + [t for t in self.tools if t["schema"]["name"] == "ask_agent"]
             schemas = [t["schema"] for t in mine] or None
             system = base + agents.prompt_for(agent, self.tools)
             self._last_agent = (agent, time.time())
