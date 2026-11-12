@@ -214,7 +214,7 @@ class ScanAgent(threading.Thread):
             if now - st.get("asked", 0) > 86400:  # ask at most once a day until they answer
                 self.notify(offer())
             return
-        if not st.get("allowed"):
+        if not st.get("allowed") or _lock.locked():  # a scan is already running: nothing to do or say
             return
         due = now - st.get("last_sync", 0) >= st.get("hours", DEFAULT_HOURS) * 3600
         if not st.get("last_full"):
