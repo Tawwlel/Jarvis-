@@ -127,8 +127,43 @@ def _ocr(img) -> str:
     return (latin + "\n" + urdu).strip()
 
 
+MAX_MB = {".pdf": 80, ".docx": 40, ".xlsx": 40}
+IMG_MIN_BYTES, IMG_MAX_BYTES, IMG_MAX_SIDE = 12_000, 40_000_000, 2200
+FILE_SECONDS = 90  # one file that takes longer than this is skipped, never allowed to stall a scan
+
+
+def _cloud_only(p: Path) -> bool:
+    """OneDrive 'online-only' files: reading them would download them. Index by name only."""
+    try:
+        attrs = getattr(p.stat(), "st_file_attributes", 0)
+        return bool(attrs & (0x1000 | 0x400000 | 0x40000))  # OFFLINE | RECALL_ON_DATA_ACCESS | RECALL_ON_OPEN
+    except OSError:
+        return False
+
+
 def extract_text(p: Path) -> str:
+    """Text of a file, safely. Never raises, never reads a huge file whole, gives up after FILE_SECONDS."""
+    import concurrent.futures as cf
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return ""
     ext = p.suffix.lower()
+    if _cloud_only(p) or size > MAX_MB.get(ext, 10_000) * 1_000_000 and ext in MAX_MB:
+        return ""
+    if ext in IMG and not IMG_MIN_BYTES <= size <= IMG_MAX_BYTES:
+        return ""  # icons/stickers carry no document; giant images are not documents
+    box = {}
+    th = threading.Thread(target=lambda: box.update(t=_extract(p, ext)), daemon=True)
+    th.start()
+    th.join(FILE_SECONDS)
+    if th.is_alive():
+        print(f"[docs] skipped (took too long): {p.name}")
+        return ""
+    return box.get("t", "")
+
+
+def _extract(p: Path, ext: str) -> str:
     try:
         if ext == ".pdf":
             from pypdf import PdfReader
@@ -140,7 +175,12 @@ def extract_text(p: Path) -> str:
             return t
         if ext in IMG:
             from PIL import Image
-            return _ocr(Image.open(p))
+            Image.MAX_IMAGE_PIXELS = 60_000_000  # bigger than this is refused (decompression bombs)
+            im = Image.open(p)
+            im.draft("RGB", (IMG_MAX_SIDE, IMG_MAX_SIDE))  # JPEGs decode at reduced size: much faster
+            if max(im.size) > IMG_MAX_SIDE:
+                im.thumbnail((IMG_MAX_SIDE, IMG_MAX_SIDE))
+            return _ocr(im)
         if ext == ".docx":
             import docx
             return " ".join(x.text for x in docx.Document(str(p)).paragraphs)
@@ -153,7 +193,8 @@ def extract_text(p: Path) -> str:
                     out += [str(c) for c in row if c is not None]
             return " ".join(out)
         if ext in (".txt", ".csv"):
-            return p.read_text(errors="ignore")[:20000]
+            with open(p, "r", errors="ignore") as f:
+                return f.read(20000)  # the start only: never the whole of a 2 GB log
     except Exception:
         pass
     return ""
@@ -302,7 +343,7 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=No
                        (key, source, chat, p.name, p.suffix.lower(), st.st_mtime, st.st_size, text[:30000],
                         typ, find_amount(text), find_date(p.name, text, st.st_mtime), fields))
             added += 1
-            time.sleep(0.02)  # let a waiting question through: scans must never make answers slow
+            time.sleep(0.002)  # let a waiting question through: scans must never make answers slow
             if added % 5 == 0:  # save as we go: a big first scan is searchable early and survives a crash
                 db.commit()
                 if progress and added % 100 == 0:
@@ -738,10 +779,15 @@ def _pretty_date(d, mtime):
 _index_lock = __import__("threading").Lock()
 
 
-def background_index(cfg: dict):
-    """Builds/refreshes the index quietly so the first search is fast. Safe to call any time."""
-    if not _index_lock.acquire(blocking=False):
+_last_bg = [0.0]
+
+
+def background_index(cfg: dict, min_gap: float = 0):
+    """Builds/refreshes the index quietly so the first search is fast. Safe to call any time.
+    min_gap: skip if one ran this recently (searches ask often; a big folder tree should not be re-walked each time)."""
+    if time.time() - _last_bg[0] < min_gap or not _index_lock.acquire(blocking=False):
         return
+    _last_bg[0] = time.time()
     try:
         t0 = time.time()
         r = reindex(cfg)
@@ -831,7 +877,7 @@ def doc_search(query, source="any"):
         return "No WhatsApp files are saved on this laptop yet. Link WhatsApp (whatsapp_link) and then run whatsapp_sync, or tell the user to do so."
     if _index_empty(source):  # nothing read yet: say so instead of making the owner wait
         return _not_ready()
-    threading.Thread(target=background_index, args=(cfg,), daemon=True).start()  # pick up new files for next time
+    threading.Thread(target=background_index, args=(cfg, 60), daemon=True).start()  # pick up new files, at most once a minute
     return _fmt(search(query, source))
 
 

@@ -135,10 +135,10 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
     seen_file = out / ".seen"  # message ids already saved, so nothing downloads twice
     done = set(seen_file.read_text().split()) if seen_file.exists() else set()
     seen |= done
-    got = 0
+    got, fails = 0, 0
     rows = page.query_selector_all(SEL["messages"])
     for m in reversed(rows):  # newest first
-        if got >= max_files:
+        if got >= max_files or fails >= 6:  # 6 failures in a row: expired media, move on
             break
         mid = m.get_attribute("data-id") or ""
         if not mid or mid in seen:
@@ -156,20 +156,24 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
             continue
         try:
             m.scroll_into_view_if_needed()
-            with page.expect_download(timeout=20000) as dl:
+            with page.expect_download(timeout=10000) as dl:
                 btn = m.query_selector("[data-icon='audio-download'], [data-icon='download'], [data-icon^='document']")
                 (btn or title or m).click()
             d = dl.value
             name = _safe_file(d.suggested_filename or label or f"photo_{int(time.time())}.jpg")
             d.save_as(str(out / name))
             got += 1
+            fails = 0
             done.add(mid)
+            if got % 10 == 0:  # remember progress, so an interrupted scan does not start this chat again
+                seen_file.write_text("\n".join(sorted(done)))
         except Exception:
+            fails += 1
             if is_img:  # photos: open the viewer and save it
                 try:
                     m.query_selector("img[src^='blob:']").click()
                     page.wait_for_timeout(800)
-                    with page.expect_download(timeout=15000) as dl:
+                    with page.expect_download(timeout=8000) as dl:
                         page.click("[data-icon='download'], [aria-label='Download']")
                     d = dl.value
                     d.save_as(str(out / _safe_file(d.suggested_filename or f"photo_{int(time.time())}.jpg")))
@@ -217,14 +221,21 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
             return {"error": "not linked"}
         page.wait_for_timeout(3000)
         names = chats or _chat_names(page, chat_limit, deep)
+        deadline = time.time() + 3 * 3600 if deep else None  # a deep scan never runs more than 3 hours
         for i, name in enumerate(names, 1):
+            if deadline and time.time() > deadline:
+                result["(stopped after 3 hours)"] = 0
+                break
             try:
                 page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=5000)
                 page.wait_for_timeout(2500)
                 _load_history(page, deep)
+                t_chat = time.time()
                 result[name] = _download_chat(page, name, per_chat, set())
+                print(f"[wa] {name}: {result[name]} new file(s) in {time.time() - t_chat:.0f}s")
             except Exception as e:
                 result[name] = f"skipped ({type(e).__name__})"
+                print(f"[wa] {name}: skipped ({type(e).__name__})")
             if progress:
                 progress(i, len(names), name)
         ctx.close()

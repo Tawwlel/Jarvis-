@@ -285,6 +285,5 @@ def learn_invoice_layout(query, issuer=""):
     out = learn_layout(text, issuer)
     f = extract(text, it["name"], it["type"])
     _save_fields(it["path"], f)
-    with docsearch._index_lock:
-        docsearch.refresh_fields()
+    docsearch.refresh_fields()  # short update: no need to wait for a running scan
     return f"Learned the layout from {it['name']} (saved as {out.name}). Read from it: " + json.dumps(f, ensure_ascii=False)

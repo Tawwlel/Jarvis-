@@ -53,6 +53,15 @@ def _inside(p: Path) -> Path:
     raise PermissionError(f"I'm only allowed to touch files in: {', '.join(str(r) for r in roots())}")
 
 
+# Only ordinary documents are ever opened. Programs, scripts, shortcuts and macro-enabled Office files are
+# refused, so text hidden inside a document or an email can never make Jarvis start something.
+OPEN_OK = {".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".bmp", ".tif", ".tiff", ".txt", ".csv",
+           ".md", ".json", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".rtf", ".odt", ".ods", ".odp"}
+NEVER_CREATE = {".exe", ".bat", ".cmd", ".com", ".scr", ".msi", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf",
+                ".wsh", ".hta", ".lnk", ".url", ".reg", ".dll", ".jar", ".cpl", ".msc", ".docm", ".xlsm", ".pptm",
+                ".py", ".pyw", ".sh", ".iso", ".appx", ".msix"}
+
+
 def _confirm(question: str) -> bool:
     fn = CTX.get("confirm")
     return bool(fn(question)) if fn else False
@@ -107,10 +116,14 @@ def file_read(path, max_chars=6000):
       "(and a backup is kept).", {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"])
 def file_write(path, content):
     p = _inside(Path(path))
+    if p.suffix.lower() in NEVER_CREATE:
+        return f"I don't create {p.suffix} files (programs and scripts)."
     if p.exists():
         if not _confirm(f"{p.name} already exists. Overwrite it? I'll keep a backup."):
             return "The user said no. Nothing was changed."
         _backup(p)
+    elif not _confirm(f"Create the new file {p.name}?"):
+        return "The user said no. Nothing was created."
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return f"Saved {p}"
@@ -138,6 +151,10 @@ def file_move(source, destination):
         d = d / s.name
     if d.exists():
         return "A file with that name already exists there, so I didn't move anything."
+    if d.suffix.lower() in NEVER_CREATE and d.suffix.lower() != s.suffix.lower():
+        return f"I won't rename a file into a {d.suffix} file (programs and scripts)."
+    if not _confirm(f"Move {s.name} to {d}?"):
+        return "The user said no. Nothing was moved."
     d.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(s), str(d))
     return f"Moved to {d}"
@@ -146,6 +163,9 @@ def file_move(source, destination):
 @tool("file_open", "Open a file with its default app.", {"path": {"type": "string"}}, ["path"])
 def file_open(path):
     p = _inside(Path(path))
+    if p.suffix.lower() not in OPEN_OK:
+        return (f"I only open documents and pictures, not {p.suffix or 'this kind of'} files - programs and scripts "
+                "could be unsafe. Open it yourself from the folder if you trust it.")
     if os.name == "nt":
         os.startfile(str(p))  # noqa: S606 - user's own file, inside allowed folders
     else:

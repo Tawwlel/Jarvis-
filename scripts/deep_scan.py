@@ -216,9 +216,16 @@ class ScanAgent(threading.Thread):
             return
         if not st.get("allowed") or _lock.locked():  # a scan is already running: nothing to do or say
             return
+        if now - st.get("last_try", 0) < 3600:  # after any attempt wait an hour before the next
+            return
         due = now - st.get("last_sync", 0) >= st.get("hours", DEFAULT_HOURS) * 3600
-        if not st.get("last_full"):
-            msg = run_scan(self.cfg, full=True)
-            self.notify(msg)
-        elif due:
-            run_scan(self.cfg, full=False)
+        if not st.get("last_full") or due:
+            st["last_try"] = now
+            _save(st)
+            try:
+                msg = run_scan(self.cfg, full=not st.get("last_full"))
+                if not st.get("last_full"):
+                    self.notify(msg)
+            except Exception as e:
+                print("[scan] failed:", e)
+                self.notify("The scan stopped on a problem. I'll try again in an hour.")

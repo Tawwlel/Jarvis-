@@ -88,9 +88,12 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
     ("jarvis", r"\bagents?\b|\bbots?\b|what can you do|ایجنٹ"),
     ("guide", r"\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
               r"set|laga|kar)|settings?\b|سیٹ ?اپ|سیٹپ|کیسے (کنیکٹ|لنک)"),
+    ("whatsapp", r"\biphone\b"),  # "iphone backup import" is the WhatsApp agent's, not the Keeper's
     ("keeper", r"\bback ?up\b|\bbackup\b|\brestore\b|بیک ?اپ"),
     ("librarian", r"\bscan\b|\bscanning\b|refresh every|سکین|اسکین"),
     ("email", r"\be-?mails?\b|\binbox\b|\bdigest\b|\bmails?\b|ای ?میل|میل"),
+    ("whatsapp", r"(whats ?app|واٹس ?ایپ).*(لنک|جوڑ|سنک)|\b(fetch|download)\b.*\bwhats ?app"),
+    ("clerk", r"\b(delete|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),
     ("whatsapp", r"(whats ?app|واٹس ?ایپ).*\b(link|sync|check|import|new|naye|fetch|connect|linked|how much|kitn\w*|"
                  r"paid?|says?|written|likha)\b|\b(link|sync|check|import|connect|how much|kitn\w*|paid?|written|likha)\b"
                  r".*(whats ?app|واٹس ?ایپ)|\b(new|naye|came|arrived|aaye?)\b.*(whats ?app|واٹس ?ایپ)|\biphone\b"),

@@ -32,6 +32,7 @@ CTX: dict = {}
 
 def notify(msg: str):
     """Say something in the chat window from a background job (set by the app; silent when there is none)."""
+    print(f"[notify] {msg}"[:300])  # in jarvis.log too, so a scan's progress can be checked afterwards
     f = CTX.get("notify")
     if f:
         try:
