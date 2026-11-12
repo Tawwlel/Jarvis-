@@ -385,8 +385,30 @@ def _extract(p: Path, ext: str) -> str:
     return ""
 
 
+_DIGITS = str.maketrans("\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9"  # Urdu/Persian digits
+                        "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669",  # Arabic-Indic digits
+                        "0123456789" * 2)
+_OCR_FIX = str.maketrans("OoIlSsBZ", "00115582")  # what OCR confuses with digits
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"[_\-\.]+", " ", s.lower())
+    return re.sub(r"[_\-\.]+", " ", s.translate(_DIGITS).lower())
+
+
+def _ocr_numbers(text: str) -> str:
+    """Words made of digits plus look-alike letters ("l148", "INV-O012", "5O00") also written with real digits, so a
+    scanned document is found by its number even when the OCR misread a character."""
+    out = []
+    for w in re.findall(r"[A-Za-z0-9]{3,}", text):
+        if re.search(r"\d", w) and re.search(r"[OoIlSsBZ]", w):
+            fixed = w.translate(_OCR_FIX)
+            digits = re.sub(r"\D", "", fixed)
+            if len(digits) >= 3 and fixed.lower() != w.lower():
+                out.append(fixed.lower())
+                m = re.search(r"\d{3,}", fixed)
+                if m:
+                    out.append(m.group())
+    return " ".join(out)
 
 
 def _has(words, hay):
@@ -727,7 +749,7 @@ TYPE_FAMILY = {"invoice": {"invoice", "sales invoice", "purchase invoice"}}
 def _hay(chat, name, text, doc_date):
     head = _norm(f"{chat} {name}")
     body = re.sub(r"(?<=\d),(?=\d{3})", "", _norm(text).replace("&", " and "))
-    return head, head + " " + body + _date_words(doc_date)
+    return head, head + " " + body + " " + _ocr_numbers(text[:4000]) + _date_words(doc_date)
 
 
 def _phon(s: str) -> str:
