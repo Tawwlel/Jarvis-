@@ -97,7 +97,18 @@ def migrate_legacy_key(store):
 
 def main():
     if sys.stdout is None:  # launched without a console (pythonw): keep a log instead
-        sys.stdout = sys.stderr = open(ROOT / "jarvis.log", "a", buffering=1, encoding="utf-8")
+        class _Stamped:  # every log line starts with the time, so slow answers and scans can be traced
+            def __init__(self, f): self.f, self.new = f, True
+            def write(self, t):
+                import time as _t
+                for part in t.splitlines(True):
+                    if self.new and part.strip():
+                        self.f.write(_t.strftime("%H:%M:%S "))
+                    self.f.write(part)
+                    self.new = part.endswith("\n")
+            def flush(self): self.f.flush()
+            def isatty(self): return False
+        sys.stdout = sys.stderr = _Stamped(open(ROOT / "jarvis.log", "a", buffering=1, encoding="utf-8"))
     else:  # a Windows console can't print Urdu by default - never crash on it
         for s in (sys.stdout, sys.stderr):
             try:

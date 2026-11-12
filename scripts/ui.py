@@ -762,11 +762,23 @@ class ChatWindow(QWidget):
         bridge.chat_sig.connect(self.add)
 
     def add(self, role: str, text: str):
+        import datetime as _dt
+        now = _dt.datetime.now()
+        stamp = now.strftime("%I:%M:%S %p").lstrip("0")
+        if getattr(self, "_last_day", now.date()) != now.date():
+            stamp = now.strftime("%d %b ") + stamp
+        self._last_day = now.date()
+        if role == "user":
+            self._asked_at = now  # the clock for "answered in"
+        elif getattr(self, "_asked_at", None):
+            stamp += f"  ·  answered in {(now - self._asked_at).total_seconds():.0f}s"
+            self._asked_at = None  # later notices (scan progress) are not answers
         who, color = ("YOU", "#b98e68") if role == "user" else ("JARVIS", "#ffb347")
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
         card = "border-left:3px solid #ff6b57;" if role != "user" else "border-left:3px solid #5a2a1c;"
         self.log.append(f'<div style="{card}margin:8px 0;padding-left:10px">'
-                        f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span><br>{safe}</div>')
+                        f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span>'
+                        f'<span style="color:#8a6a55;font-size:10px">&nbsp;&nbsp;{stamp}</span><br>{safe}</div>')
 
     def _send(self):
         t = self.input.text().strip()
