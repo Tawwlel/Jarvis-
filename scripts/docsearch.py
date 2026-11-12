@@ -128,6 +128,7 @@ def _db():
     c.execute("""CREATE TABLE IF NOT EXISTS docs(path TEXT PRIMARY KEY, source TEXT, chat TEXT, name TEXT,
                  ext TEXT, mtime REAL, size INTEGER, text TEXT, doc_type TEXT, amount TEXT, doc_date TEXT,
                  v2 INTEGER, fields TEXT)""")
+    c.execute("CREATE TABLE IF NOT EXISTS hashes(path TEXT PRIMARY KEY, h TEXT)")  # content fingerprints: same file, different names
     _migrate(c)
     return c
 
@@ -504,6 +505,16 @@ def _folders(cfg: dict) -> list[Path]:
     return out
 
 
+def _fingerprint(p: Path) -> str:
+    """Cheap content fingerprint (size + first MB): a PDF forwarded on WhatsApp and also attached to an email is one document."""
+    import hashlib
+    try:
+        with open(p, "rb") as f:
+            return hashlib.sha1(f.read(1_000_000) + str(p.stat().st_size).encode(), usedforsecurity=False).hexdigest()
+    except OSError:
+        return ""
+
+
 def _junk(name: str) -> bool:
     """Office lock files (~$x.docx), editor backups and system files are never documents."""
     n = name.lower()
@@ -536,7 +547,10 @@ def reindex(cfg: dict, include_computer=True, include_whatsapp=True, progress=No
             st = p.stat()
             row = db.execute("SELECT mtime,size FROM docs WHERE path=?", (key,)).fetchone()
             if row and abs(row[0] - st.st_mtime) < 1 and row[1] == st.st_size:
+                if not db.execute("SELECT 1 FROM hashes WHERE path=?", (key,)).fetchone():
+                    db.execute("REPLACE INTO hashes VALUES(?,?)", (key, _fingerprint(p)))  # older rows get theirs too
                 continue
+            db.execute("REPLACE INTO hashes VALUES(?,?)", (key, _fingerprint(p)))
             text = "" if light else extract_text(p)  # light mode: remember the location only, read when asked
             chat = p.relative_to(root).parts[0] if mode == "chat" and len(p.relative_to(root).parts) > 1 else ""
             typ = classify(p.name, text)
@@ -666,6 +680,7 @@ def parse_filters(q: str):
 def parse(query: str):
     """Returns (doc_type, terms). doc_type '' means any type."""
     q, _ = parse_filters(" " + _relative_dates(_norm(query).replace("&", " and ")) + " ")
+    q = re.sub(r"(?<![\w])([a-z]{1,4})(\d{3,})(?!\w)", r"\1 \2", q)  # "INV1148" / "QT1250" -> "inv 1148" / "qt 1250"
     doc_type = ""
     for typ in TYPE_ORDER:
         for w in sorted(TYPES[typ], key=len, reverse=True):
@@ -853,9 +868,10 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
     rows = db.execute("SELECT path,source,chat,name,ext,mtime,text,doc_type,amount,doc_date FROM docs"
                       + ("" if source in ("any", "") else " WHERE source=?"),
                       () if source in ("any", "") else (source,)).fetchall()
+    fp = dict(db.execute("SELECT path, h FROM hashes").fetchall())
     db.close()
     allowed = TYPE_FAMILY.get(doc_type, {doc_type})
-    cands = []
+    cands, heads = [], {}
     for path, src, chat, name, ext, mtime, text, typ, amount, doc_date in rows:
         if doc_type and typ not in allowed and not (typ == "register" and terms):
             continue
@@ -871,9 +887,9 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
             if not day or not (filters["from"] <= day <= filters["to"]):
                 continue
         head, hay = _hay(chat, name, text, doc_date)
-        cands.append((set(re.findall(r"[\w']+", hay)), head, hay,
-                      dict(path=path, source=src, chat=chat, name=name, type=typ, amount=amount,
-                           date=doc_date, mtime=mtime)))
+        item = dict(path=path, source=src, chat=chat, name=name, type=typ, amount=amount, date=doc_date, mtime=mtime)
+        heads[id(item)] = head
+        cands.append((set(re.findall(r"[\w']+", hay)), head, hay, item))
     # Words in most candidate documents (letterhead, "Bill To", "Total") don't tell documents apart
     n = len(cands)
     from collections import Counter
@@ -939,6 +955,13 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
     exact = sorted([s for s in scored if s[0]], key=lambda s: (-round(s[1], 2), s[3]["date"] or ""), reverse=False)
     exact.sort(key=lambda s: s[3]["date"] or "", reverse=True)
     exact.sort(key=lambda s: -round(s[1], 2))  # best match first, newest first among equals
+    nums = [t for t in terms if re.fullmatch(r"\d{3,6}", t) and not re.fullmatch(r"(19|20)\d\d", t)]
+    if nums and exact:  # asking for a document by its number: that document, not everything of its type
+        pat = re.compile(rf"(?<!\d)({'|'.join(nums)})(?!\d)")
+        by_no = [s_ for s_ in exact if pat.search(s_[3]["name"]) or pat.search(heads.get(id(s_[3]), ""))]
+        if by_no:
+            same = {fp.get(s_[3]["path"]) for s_ in by_no} - {None, ""}
+            exact = by_no + [s_ for s_ in exact if s_ not in by_no and fp.get(s_[3]["path"]) in same]  # its copies too
     if terms and exact:
         mode, picked = "specific", exact
     elif terms:  # nothing matched every word: offer the nearest, clearly labelled
@@ -954,15 +977,19 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
     items, seen = [], {}
     for s_ in picked:  # the same file forwarded to several chats is listed once
         it = s_[3]
-        try:
-            k = (it["name"].lower(), Path(it["path"]).stat().st_size)
-        except OSError:
-            k = (it["path"],)
+        if fp.get(it["path"]):
+            k = (fp[it["path"]],)  # identical content, whatever the file is called
+        else:
+            try:
+                k = (it["name"].lower(), Path(it["path"]).stat().st_size)
+            except OSError:
+                k = (it["path"],)
+        where = (f"email from {it['chat']}" if it["source"] == "email" and it["chat"] else it["chat"] or it["source"])
         if k in seen:
-            if it["chat"] and it["chat"] not in seen[k]["also_in"]:
-                seen[k]["also_in"].append(it["chat"])
+            if where and where not in seen[k]["also_in"]:
+                seen[k]["also_in"].append(where)
             continue
-        it["also_in"] = [it["chat"]] if it["chat"] else []
+        it["also_in"] = [where] if where else []
         seen[k] = it
         items.append(it)
     return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(items),
@@ -1024,7 +1051,12 @@ def _fmt(r: dict, n=12) -> str:
                        "ones and ask if they're right."}[r["mode"]]
     if r.get("heard_as"):
         head = r["heard_as"] + " Tell the user this in one short phrase. " + head
-    lines = [f"{i}. {it['name']}" + (f" (chat: {', '.join(it.get('also_in') or [it['chat']])})" if it["chat"] else "")
+    def where(it):
+        locs = it.get("also_in") or ([it["chat"]] if it["chat"] else [])
+        if len(locs) > 1:
+            return f" (found in: {', '.join(locs)})"
+        return f" (chat: {it['chat']})" if it["chat"] else (f" (from {it['source']})" if it["source"] in ("email",) else "")
+    lines = [f"{i}. {it['name']}" + where(it)
              + (f" [{it['type']}]" if it["type"] else "") + (f" total {it['amount']}" if it["amount"] else "")
              + f" - {_pretty_date(it.get('date'), it['mtime'])}"
              for i, it in enumerate(r["items"][:n], 1)]

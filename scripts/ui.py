@@ -480,7 +480,7 @@ class WelcomeWindow(QWidget):
         d = QFileDialog.getExistingDirectory(self, "Choose a folder for Jarvis to read")
         if d:
             self.extra = getattr(self, "extra", []) + [d]
-            self.extra_lbl.setText("Also: " + ", ".join(Path(x).name for x in self.extra))
+            self.extra_lbl.setText("Also: " + ", ".join(_Path(x).name for x in self.extra))
 
     def _pick(self, code):
         self.language = code
