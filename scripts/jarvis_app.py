@@ -12,6 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 import audio
@@ -19,7 +20,7 @@ from config import ROOT, load_config, save_config
 from memory import Memory
 from providers import make_tts
 from secrets_store import default_store
-from ui import WelcomeWindow, Bridge, ChatWindow, Overlay, SettingsWindow, make_tray
+from ui import WelcomeWindow, Bridge, ChatWindow, Overlay, PhoneWindow, SettingsWindow, make_tray
 
 VOICES = ["amy", "ryan", "alan", "lessac", "southern"]
 LOGO = str(ROOT / "assets" / "logo.png")
@@ -262,9 +263,28 @@ def main():
                     keep["assistant"].submit_text(text, False)
                 else:
                     keep["chat"].add("assistant", "One moment, I'm still starting up.")
+            class _PhoneSig(QObject):
+                ready = Signal(str, str, int)
+                fail = Signal(str)
+            psig = _PhoneSig()
+            psig.ready.connect(lambda l, c, m: (keep.__setitem__("phonewin", PhoneWindow(l, c, m)), keep["phonewin"].show()))
+            psig.fail.connect(lambda e: bridge.chat("assistant", e))
+
+            def connect_phone():
+                def go():
+                    try:
+                        import phone_bridge
+                        d = phone_bridge.start_pairing(cfg)
+                        if phone_bridge.AGENT:
+                            phone_bridge.AGENT.poke()
+                        psig.ready.emit(d["link"], d["code"], d["expires_in"] // 60)
+                    except Exception as e:
+                        psig.fail.emit(f"I couldn't start the phone link: {e}")
+                threading.Thread(target=go, daemon=True).start()
             keep["tray"] = make_tray(app, LOGO, name(), ask, open_chat, lambda: open_settings(False), app.quit,
                                      on_selftest=run_selftest, on_speedtest=run_speedtest, on_ask=tray_ask,
-                                     on_history=lambda: (open_chat(), keep["chat"].show_history()))
+                                     on_history=lambda: (open_chat(), keep["chat"].show_history()),
+                                     on_phone=connect_phone)
         open_chat()
         threading.Thread(target=work, daemon=True).start()
         if not keep.get("backup_agent"):

@@ -34,8 +34,8 @@ from tools import CTX, tool
 
 MAGIC = b"JBK1"
 CHUNK = 1 << 20
-SECRET_NAMES = ["anthropic", "openai", "elevenlabs", "email_password", "iphone_backup_password", "_memory_key"]
-SMALL_FILES = ["config.local.json", "calendar_local.json"]
+SECRET_NAMES = ["anthropic", "openai", "elevenlabs", "email_password", "iphone_backup_password", "_memory_key", "phone_secret", "phone_key"]
+SMALL_FILES = ["config.local.json", "calendar_local.json", "phone.json"]
 SMTP = {"gmail.com": "smtp.gmail.com", "googlemail.com": "smtp.gmail.com", "yahoo.com": "smtp.mail.yahoo.com",
         "icloud.com": "smtp.mail.me.com", "me.com": "smtp.mail.me.com", "zoho.com": "smtp.zoho.com"}
 _lock = threading.Lock()

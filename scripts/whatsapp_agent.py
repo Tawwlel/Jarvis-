@@ -134,6 +134,7 @@ def whatsapp_docs_ask(question):
             r = r2
     if not r["items"]:
         return "No WhatsApp documents match that."
+    docsearch.note_phone_files(r["items"])
     rows = {p: txt for p, *_rest, txt in _wa_rows()}
     out = []
     for it in r["items"][:5]:

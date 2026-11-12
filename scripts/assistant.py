@@ -84,6 +84,7 @@ class Assistant:
         self.notes = NotesSession(self.brain.mem, self.brain.summarize_notes)
         self.triggers: queue.Queue = queue.Queue()
         self.busy = False
+        self.brain_lock = threading.Lock()
         self.stop_notes = threading.Event()
         self.speak_lock = threading.Lock()
 
@@ -121,6 +122,10 @@ class Assistant:
             tools_mod = __import__("tools")
             tools_mod.CTX["notify"] = lambda t: self.bridge.chat("assistant", t)
             WhatsAppAgent(self.cfg, lambda t: self.bridge.chat("assistant", t)).start()
+            import phone_bridge
+            phone_bridge.AGENT = phone_bridge.PhoneAgent(self.cfg, self.phone_ask,
+                                                         lambda t: self.bridge.chat("assistant", t))
+            phone_bridge.AGENT.start()
             from deep_scan import ScanAgent  # asks once, then refreshes everything every 12 hours
             ScanAgent(self.cfg, lambda t: self.bridge.chat("assistant", t)).start()
         if self.cfg.get("tools_enabled", {}).get("email", True):
@@ -204,6 +209,28 @@ class Assistant:
         return briefing.generate(self.brain, self.cfg)
 
     # ---------- conversation ----------
+    def phone_ask(self, text: str) -> dict:
+        """A question typed on the owner's phone: answered with read-only tools, shown in the chat window too."""
+        import tools as tools_mod
+        t0 = time.time()
+        with self.brain_lock:  # one conversation at a time, laptop or phone
+            tools_mod.CTX["phone_mode"], tools_mod.CTX["phone_files"] = True, []
+            try:
+                reply = self.brain.respond(text, phone=True)
+                files = list(tools_mod.CTX.get("phone_files", []))
+            finally:
+                tools_mod.CTX["phone_mode"] = False
+                tools_mod.CTX.pop("phone_files", None)
+        print(f"[phone] answered in {time.time() - t0:.1f}s")
+        self.bridge.chat("user", "(phone) " + text)
+        self.bridge.chat("assistant", reply)
+        seen, uniq = set(), []
+        for f in files:  # one card per file
+            if f["path"] not in seen:
+                seen.add(f["path"])
+                uniq.append(f)
+        return {"text": reply, "files": uniq[:8]}
+
     def loop(self):
         while True:
             trig = self.triggers.get()
@@ -249,7 +276,8 @@ class Assistant:
             if reply is None:
                 self.bridge.state("working")
                 t0 = time.time()
-                reply = self.brain.respond(text)
+                with self.brain_lock:
+                    reply = self.brain.respond(text)
                 print(f"[timing] thinking {time.time() - t0:.1f}s")
             self.say(reply, silent)
             if silent:

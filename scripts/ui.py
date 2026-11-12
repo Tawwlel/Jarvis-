@@ -733,6 +733,40 @@ class HoloHeader(QWidget):
         p.drawText(QRectF(w - 258, h - 28, 240, 20), Qt.AlignRight, STATE_TEXT.get(self.state, "") or "STANDING BY")
 
 
+class PhoneWindow(QWidget):
+    """Shows the QR code that connects a phone. The key is inside the QR code only; it never goes to a server."""
+
+    def __init__(self, link: str, code: str, minutes: int):
+        super().__init__()
+        from PySide6.QtGui import QImage, QPixmap
+        import io
+        import qrcode
+        self.setWindowTitle("Connect my phone")
+        self.setStyleSheet(QSS)
+        lay = QVBoxLayout(self)
+        t = QLabel("Point your phone's camera at this code")
+        t.setAlignment(Qt.AlignCenter)
+        lay.addWidget(t)
+        img = qrcode.make(link, box_size=7, border=3).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        pm = QPixmap()
+        pm.loadFromData(buf.getvalue())
+        q = QLabel()
+        q.setPixmap(pm)
+        q.setAlignment(Qt.AlignCenter)
+        lay.addWidget(q)
+        c = QLabel(f"Or open {link.split('#')[0]} and type  {code}")
+        c.setAlignment(Qt.AlignCenter)
+        c.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(c)
+        n = QLabel(f"Works for {minutes} minutes. Keep this laptop on, plugged in and on Wi-Fi.\n"
+                   "On an iPhone: open it in Safari, tap Share, then Add to Home Screen.")
+        n.setAlignment(Qt.AlignCenter)
+        n.setWordWrap(True)
+        lay.addWidget(n)
+
+
 class HistoryWindow(QWidget):
     """All earlier chats: pick a day on the left, or search every message."""
 
@@ -905,7 +939,7 @@ class ChatWindow(QWidget):
 
 
 def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_selftest=None, on_speedtest=None,
-              on_ask=None, on_history=None):
+              on_ask=None, on_history=None, on_phone=None):
     tray = QSystemTrayIcon(QIcon(logo_path), app)
     tray.setToolTip(f"{name} by Apricot Digital")
     menu = QMenu()
@@ -919,6 +953,7 @@ def make_tray(app, logo_path, name, on_talk, on_chat, on_settings, on_quit, on_s
                   ("Scan everything now", lambda: on_ask("tool:scan_everything")),
                   ("Show my agents", lambda: on_ask("tool:agents_status")),
                   *([("Chat history", on_history)] if on_history else []),
+                  *([("Connect my phone", on_phone)] if on_phone else []),
                   ("Help me set up Jarvis", lambda: on_ask("tool:setup_help"))]
     if on_selftest:
         items.append(("Run document test", on_selftest))

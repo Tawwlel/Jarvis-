@@ -52,5 +52,8 @@
     "private_terms": [],
     "local_only_terms": []
   },
-  "file_roots": []
+  "file_roots": [],
+  "phone": {
+    "relay_url": ""
+  }
 }

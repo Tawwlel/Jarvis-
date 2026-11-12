@@ -878,7 +878,16 @@ def doc_search(query, source="any"):
     if _index_empty(source):  # nothing read yet: say so instead of making the owner wait
         return _not_ready()
     threading.Thread(target=background_index, args=(cfg, 60), daemon=True).start()  # pick up new files, at most once a minute
-    return _fmt(search(query, source))
+    r = search(query, source)
+    note_phone_files(r.get("items", []))
+    return _fmt(r)
+
+
+def note_phone_files(items):
+    """While a PHONE asked the question, remember which documents the answer is about, so the phone can show and
+    open them (see phone_bridge.py)."""
+    if CTX.get("phone_mode"):
+        CTX.setdefault("phone_files", []).extend(items[:8])
 
 
 @tool("doc_find_by_meaning",
@@ -898,6 +907,7 @@ def doc_find_by_meaning(description, source="any"):
     items = _meaning(description, source)
     if not items:
         return "Nothing matched that description."
+    note_phone_files(items)
     return _fmt({"mode": "meaning", "type": "", "total": len(items), "items": items})
 
 

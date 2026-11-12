@@ -70,6 +70,11 @@ AGENTS = {
         "tools": ["setup_help", "update_settings"],
         "prompt": "You are the Guide agent. Your only job: help the owner set Jarvis up, one step at a time, and "
                   "change settings. Never ask for passwords or keys in chat."},
+    "phone": {
+        "title": "Phone", "job": "connect the owner's phone to Jarvis, and say which phones are connected",
+        "tools": ["phone_pair", "phone_status", "phone_forget"],
+        "prompt": "You are the Phone agent. Your only job: connecting a phone to Jarvis, listing connected phones and "
+                  "disconnecting one. Tell the owner to keep the laptop on, plugged in and on Wi-Fi."},
     "operator": {
         "title": "Operator", "job": "control the mouse and keyboard (only when switched on)",
         "tools": [], "prefix": "computer_",
@@ -89,6 +94,9 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
     ("guide", r"\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
               r"set|laga|kar)|settings?\b|سیٹ ?اپ|سیٹپ|کیسے (کنیکٹ|لنک)"),
     ("whatsapp", r"\biphone\b"),  # "iphone backup import" is the WhatsApp agent's, not the Keeper's
+    ("phone", r"\b(connect|link|pair|add|set ?up|disconnect|forget|remove)\b.*\b(phone|mobile|iphone app|app)\b|"
+              r"\b(phone|mobile)\b.*\b(connect|link|pair|app|status|connected)\b|فون.*(جوڑ|کنیکٹ|لنک)|"
+              r"\b(phone|mobile) (se|par|pe)\b.*\b(jarvis|use|chala)"),
     ("keeper", r"\bback ?up\b|\bbackup\b|\brestore\b|بیک ?اپ"),
     ("librarian", r"\bscan\b|\bscanning\b|refresh every|سکین|اسکین"),
     ("email", r"\be-?mails?\b|\binbox\b|\bdigest\b|\bmails?\b|ای ?میل|میل"),

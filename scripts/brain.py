@@ -77,6 +77,7 @@ class Brain:
         self.local = LocalLLM(self.models.get("tier0_local"))  # light: quick, simple answers
         self.local_heavy = LocalLLM(None)  # no heavy model: one small model keeps memory use low
         self._llm = None
+        self.deny = set()
         self._last_agent = None  # (name, time): lets a short follow-up stay with the same agent
         self._local_ok = (0.0, False)
         self._heavy_ok = (0.0, False)
@@ -192,7 +193,9 @@ class Brain:
         return None
 
     # ---------- main entry ----------
-    def respond(self, text: str) -> str:
+    def respond(self, text: str, phone: bool = False) -> str:
+        """phone=True: the question came from the owner's phone - read-only tools only (see phone_bridge.PHONE_DENY)."""
+        self.deny = set(__import__("phone_bridge").PHONE_DENY) if phone else set()
         self.mem.add_message("user", text)
         quick = self._quick(text)
         if quick:
@@ -281,11 +284,13 @@ class Brain:
         max_steps = 30 if agent == "operator" else 7
         handed = False
         for _ in range(max_steps):
-            mine = agents.tools_for(agent, self.tools)
+            mine = [t for t in agents.tools_for(agent, self.tools) if t["schema"]["name"] not in self.deny]
             if handed:  # an agent that received the work does it; it cannot pass it on again
                 mine = [t for t in mine if t["schema"]["name"] != "ask_agent"]
             elif agent != "jarvis":  # the first agent may pass a misrouted request on, once
                 mine = mine + [t for t in self.tools if t["schema"]["name"] == "ask_agent"]
+            if agent == "operator" and self.deny:
+                agent = "jarvis"  # a phone can never drive the mouse and keyboard
             schemas = [t["schema"] for t in mine] or None
             system = base + agents.prompt_for(agent, self.tools)
             self._last_agent = (agent, time.time())
