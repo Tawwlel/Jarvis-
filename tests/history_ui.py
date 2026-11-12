@@ -27,7 +27,7 @@ check("search finds old messages", len(mem.chat_search("khan")) == 1 and mem.cha
 
 b = ui.Bridge(); b.recorder = mem.add_chat
 w = ui.ChatWindow(b, "Jarvis", mem)
-check("window replays earlier chats on open", "Khan Traders ki invoice" in w.log.toPlainText() and "EARLIER CHATS" in w.log.toPlainText())
+check("window replays earlier chats on open", "Khan Traders ki invoice" in w.log.toPlainText() and "earlier chats above" in w.log.toPlainText())
 b.chat("user", "hello again")
 time.sleep(0.05)
 b.chat_sig.emit  # signal delivered synchronously in the same thread

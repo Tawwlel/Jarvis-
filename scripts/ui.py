@@ -16,8 +16,75 @@ from PySide6.QtWidgets import (QListWidgetItem, QCheckBox, QComboBox, QFormLayou
                                QLineEdit, QMenu, QPushButton, QSystemTrayIcon, QTabWidget,
                                QTextBrowser, QTimeEdit, QVBoxLayout, QWidget)
 
-RED, GOLD = QColor(255, 107, 87), QColor(255, 179, 71)
-FONT = "Bahnschrift"  # ships with Windows 10/11: slim, technical look
+from pathlib import Path as _Path
+
+# The Apricot Digital look (same as apricotdigital.xyz): near-black, one hot red, Archivo / Instrument Sans / JetBrains Mono.
+_ASSETS = _Path(__file__).parent.parent / "assets"
+DISPLAY, BODY, MONO = "Archivo", "Instrument Sans", "JetBrains Mono"
+PALETTES = {
+    "dark": dict(bg="#08080A", fg="#FFFFFF", dim="#D5D9DF", line="rgba(244,245,246,.17)", soft="rgba(244,245,246,.075)",
+                 sheet="rgba(255,255,255,.035)", field="#101013", accent="#FF4A3A", ink="#0B0B0C"),
+    "light": dict(bg="#FAFAF9", fg="#0B0B0C", dim="#3A3E44", line="rgba(11,11,12,.15)", soft="rgba(11,11,12,.07)",
+                  sheet="rgba(255,255,255,.66)", field="#FFFFFF", accent="#EE2A1C", ink="#FFFFFF"),
+}
+THEME = "dark"
+P = dict(PALETTES["dark"])  # the live colours: windows read these when they are built
+RED, GOLD = QColor(255, 74, 58), QColor(228, 231, 235)  # overlay rings: accent + soft white
+FONT = BODY
+
+
+def load_fonts():
+    """Register the bundled fonts (they ship in assets/fonts); Segoe UI is the fallback if one is missing."""
+    from PySide6.QtGui import QFontDatabase
+    for f in sorted((_ASSETS / "fonts").glob("*.ttf")):
+        QFontDatabase.addApplicationFont(str(f))
+
+
+def qss(theme: str | None = None) -> str:
+    c = PALETTES.get(theme or THEME, PALETTES["dark"])
+    return f"""
+QWidget{{background:{c['bg']};color:{c['fg']};font-family:'{BODY}','Segoe UI';font-size:14px}}
+QLineEdit,QComboBox,QTimeEdit{{background:{c['field']};border:1px solid {c['line']};border-radius:3px;padding:8px}}
+QLineEdit:focus,QComboBox:focus,QTimeEdit:focus{{border:1px solid {c['accent']}}}
+QLineEdit#prompt{{border-radius:19px;padding:11px 20px;font-family:'{MONO}';font-size:13px;background:{c['sheet']}}}
+QComboBox QAbstractItemView{{background:{c['field']};selection-background-color:{c['accent']};selection-color:{c['ink']}}}
+QPushButton{{background:{c['accent']};color:{c['ink']};border:1px solid {c['accent']};border-radius:18px;padding:10px 22px;
+  font-family:'{MONO}';font-size:11px;font-weight:600}}
+QPushButton:hover{{background:{c['fg']};border:1px solid {c['fg']}}}
+QPushButton#ghost,QPushButton#pill{{background:transparent;color:{c['fg']};border:1px solid {c['line']};border-radius:12px;
+  padding:6px 8px;font-family:'{MONO}';font-size:10px;font-weight:500}}
+QPushButton#ghost:hover,QPushButton#pill:hover{{border:1px solid {c['accent']};color:{c['accent']};background:transparent}}
+QPushButton#round{{background:transparent;border:1px solid {c['line']};border-radius:21px;padding:0}}
+QPushButton#round:hover{{border:1px solid {c['accent']};background:transparent}}
+QCheckBox{{spacing:8px}}
+QCheckBox::indicator{{width:15px;height:15px;border:1px solid {c['dim']};background:{c['field']};border-radius:2px}}
+QCheckBox::indicator:checked{{background:{c['accent']};border:1px solid {c['accent']}}}
+QLabel#section{{color:{c['accent']};font-family:'{MONO}';font-size:11px;font-weight:500}}
+QLabel#sub{{color:{c['dim']}}}
+QTabWidget::pane{{border:1px solid {c['line']};top:-1px}}
+QTabBar::tab{{background:{c['bg']};color:{c['dim']};padding:9px 14px;border:none;border-bottom:2px solid transparent}}
+QTabBar::tab:selected{{color:{c['fg']};border-bottom:2px solid {c['accent']}}}
+QTextBrowser{{background:{c['bg']};border:none;padding:4px 2px}}
+QListWidget{{background:{c['field']};border:1px solid {c['line']}}}
+QListWidget::item:selected{{background:{c['accent']};color:{c['ink']}}}
+QScrollBar:vertical{{background:transparent;width:8px}}
+QScrollBar::handle:vertical{{background:{c['line']};border-radius:3px;min-height:24px}}
+QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0}}
+"""
+
+
+QSS = qss("dark")  # kept for code that still asks for it; the app sets the live one with set_theme()
+
+
+def set_theme(name: str, app=None):
+    """Switch every window between the dark and the light look."""
+    global THEME
+    THEME = name if name in PALETTES else "dark"
+    P.update(PALETTES[THEME])
+    from PySide6.QtWidgets import QApplication
+    app = app or QApplication.instance()
+    if app:
+        app.setStyleSheet(qss(THEME))
 STATE_TEXT = {"idle": "", "listening": "LISTENING", "thinking": "THINKING",
               "speaking": "SPEAKING", "working": "WORKING", "notes": "TAKING NOTES"}
 
@@ -181,25 +248,6 @@ class Overlay(QWidget):
         self._drag = None
 
 
-QSS = """
-QWidget{background:#120706;color:#ffe3b8;font-family:'Bahnschrift','Segoe UI';font-size:14px}
-QLineEdit,QComboBox,QTimeEdit{background:#1d0c09;border:1px solid #5a2a1c;border-radius:0;padding:8px}
-QLineEdit:focus,QComboBox:focus,QTimeEdit:focus{border:1px solid #ffb347}
-QComboBox QAbstractItemView{background:#1d0c09;selection-background-color:#ff6b57}
-QPushButton{background:rgba(255,179,71,.14);color:#ffb347;border:1px solid #ffb347;border-radius:0;padding:10px 20px;font-weight:600;letter-spacing:2px}
-QPushButton:hover{background:rgba(255,179,71,.30)}
-QPushButton#ghost{background:transparent;border:1px solid #5a2a1c;color:#d9a97a;padding:7px 12px}
-QPushButton#ghost:hover{border-color:#ffb347}
-QCheckBox{spacing:8px}
-QCheckBox::indicator{width:15px;height:15px;border:1px solid #b98e68;background:#1d0c09}
-QCheckBox::indicator:checked{background:#ffb347;border:1px solid #ffb347}
-QLabel#section{color:#ffb347;font-size:11px;letter-spacing:3px;font-weight:600}
-QLabel#sub{color:#b98e68}
-QTabWidget::pane{border:1px solid #3a1a12;top:-1px}
-QTabBar::tab{background:#120706;color:#b98e68;padding:9px 14px;border:none;border-bottom:2px solid transparent}
-QTabBar::tab:selected{color:#ffe3b8;border-bottom:2px solid #ff6b57}
-QTextBrowser{background:#0c0504;border:1px solid #3a1a12;padding:10px}
-"""
 
 PROVIDERS = {
     "llm": [("Anthropic (Claude)", "anthropic"), ("OpenAI-compatible (OpenAI, OpenRouter, Groq...)", "openai_compatible")],
@@ -247,11 +295,11 @@ class WelcomeWindow(QWidget):
     def __init__(self, logo_path: str):
         super().__init__()
         self.setWindowTitle("Welcome to Jarvis")
-        self.setStyleSheet(QSS + "QLabel#step{color:#ffb347;font-size:22px;font-weight:700}"
-                                 "QLabel#h{font-size:17px;font-weight:600}"
-                                 "QPushButton#pick{padding:9px 18px;border:1px solid #5a2a1c;color:#d9a97a;background:transparent;letter-spacing:0px;font-size:15px}"
-                                 "QPushButton#pick:checked{border:1px solid #ffb347;color:#ffe3b8;background:rgba(255,179,71,.22)}"
-                                 "QPushButton#go{font-size:15px;padding:12px 46px}")
+        self.setStyleSheet(f"QLabel#step{{color:{P['accent']};font-family:'{MONO}';font-size:20px;font-weight:600}}"
+                           "QLabel#h{font-size:17px;font-weight:600}"
+                           f"QPushButton#pick{{padding:9px 18px;border:1px solid {P['line']};color:{P['fg']};background:transparent;font-family:'{BODY}';font-size:15px}}"
+                           f"QPushButton#pick:checked{{border:1px solid {P['accent']};color:{P['accent']};background:transparent}}"
+                           "QPushButton#go{font-size:13px;padding:13px 46px}")
         self.setFixedWidth(600)
         root = QVBoxLayout(self)
         root.setContentsMargins(34, 16, 34, 14)
@@ -261,7 +309,7 @@ class WelcomeWindow(QWidget):
         logo.setAlignment(Qt.AlignCenter)
         title = QLabel("WELCOME TO JARVIS")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size:20px;font-weight:700;letter-spacing:6px;color:#ffd08a")
+        title.setStyleSheet(f"font-family:'{DISPLAY}';font-size:24px;font-weight:500;color:{P['fg']}")
         sub = QLabel("A few quick steps. No technical knowledge needed.")
         sub.setAlignment(Qt.AlignCenter)
         sub.setObjectName("sub")
@@ -336,7 +384,7 @@ class WelcomeWindow(QWidget):
         self.warn.setAlignment(Qt.AlignCenter)
         self.warn.setWordWrap(True)
         self.warn.setMinimumHeight(34)  # room for two lines, so showing it never squeezes the form
-        self.warn.setStyleSheet("color:#ff6b57")
+        self.warn.setStyleSheet(f"color:{P['accent']}")
         root.addWidget(self.warn)
         foot = QHBoxLayout()
         foot.addStretch()
@@ -379,7 +427,6 @@ class SettingsWindow(QWidget):
                  store=None, roles: dict | None = None, profile: dict | None = None):
         super().__init__()
         self.setWindowTitle("Jarvis by Apricot Digital")
-        self.setStyleSheet(QSS)
         self.setMinimumWidth(560)
         self.cfg, self.preview, self.store = cfg, preview, store
         self.roles = (roles or {}).get("roles", {})
@@ -394,9 +441,9 @@ class SettingsWindow(QWidget):
         logo.setPixmap(QPixmap(logo_path).scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         titles = QVBoxLayout()
         title = QLabel("JARVIS")
-        title.setStyleSheet("font-size:26px;font-weight:700;letter-spacing:8px;")
+        title.setStyleSheet(f"font-family:'{DISPLAY}';font-size:28px;font-weight:500;")
         by = QLabel("BY APRICOT DIGITAL")
-        by.setStyleSheet("color:#f5c14a;font-size:10px;letter-spacing:4px;")
+        by.setStyleSheet(f"color:{P['accent']};font-family:'{MONO}';font-size:10px;")
         titles.addWidget(title)
         titles.addWidget(by)
         head.addWidget(logo)
@@ -683,54 +730,84 @@ class SettingsWindow(QWidget):
 
 
 class HoloHeader(QWidget):
-    """Animated rings + the assistant's name and state, like the film's holographic console."""
+    """Top of the chat window: logo with a slow dotted ring, the headline, and the assistant's state."""
 
     def __init__(self, bridge: Bridge, name: str):
         super().__init__()
-        self.setFixedHeight(176)
+        self.setFixedHeight(200)
         self.name, self.state, self.t = name, "idle", 0.0
+        from PySide6.QtGui import QPixmap
+        self.logo = QPixmap(str(_ASSETS / "logo.png"))
         bridge.state_sig.connect(self._set)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
-        self.timer.start(33)
+        self.timer.start(40)
 
     def _set(self, s):
         self.state = s
 
     def _tick(self):
-        self.t += 0.033
+        self.t += 0.04
         if self.isVisible():
             self.update()
 
     def paintEvent(self, _):
         p = QPainter(self)
-        p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
+        p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing | QPainter.SmoothPixmapTransform)
         w, h, t = self.width(), self.height(), self.t
-        p.fillRect(self.rect(), QColor("#120706"))
-        cx, cy = w / 2, 72
+        bg, fg, dim, acc = QColor(P["bg"]), QColor(P["fg"]), QColor(P["dim"]), QColor(P["accent"])
+        p.fillRect(self.rect(), bg)
         busy = self.state in ("listening", "speaking", "thinking", "working")
-        pulse = 1 + (0.04 * math.sin(t * 6) if busy else 0.0)
-        for r, wd, speed, dash, col in [(66, 1.2, 0.3, 6, GOLD), (56, 4.0, -0.6, 22, RED), (46, 1.2, 0.9, 3, GOLD)]:
-            pen = QPen(col, wd)
-            pen.setCapStyle(Qt.RoundCap)
-            p.setPen(pen)
-            rr = r * pulse
-            for k in range(int(360 / (dash * 2))):
-                a = (k * dash * 2 + t * speed * 60) % 360
-                p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), int(a * 16), int(dash * 16))
+        # top bar
+        p.setPen(fg)
+        p.setFont(QFont(BODY, 9, QFont.DemiBold))
+        p.drawText(QRectF(22, 10, 220, 22), Qt.AlignLeft | Qt.AlignVCenter, "APRICOT DIGITAL")
+        mono = QFont(MONO, 8)
+        p.setFont(mono)
+        p.setPen(dim)
+        p.drawText(QRectF(0, 10, w, 22), Qt.AlignHCenter | Qt.AlignVCenter, "JARVIS / 01")
+        label = (STATE_TEXT.get(self.state, "") or "ONLINE").upper()
+        p.setPen(QPen(QColor(P["dim"]).darker(160), 1))
+        pill = QRectF(w - 150, 8, 130, 26)
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(pill, 13, 13)
         p.setPen(Qt.NoPen)
-        g = QRadialGradient(cx, cy, 34)
-        g.setColorAt(0, QColor(255, 230, 190, 235))
-        g.setColorAt(1, QColor(255, 107, 87, 0))
-        p.setBrush(g)
-        p.drawEllipse(QPointF(cx, cy), 34 * pulse, 34 * pulse)
-        f = QFont(FONT, 10, QFont.Bold)
-        f.setLetterSpacing(QFont.AbsoluteSpacing, 4)
-        p.setFont(f)
-        p.setPen(GOLD)
-        p.drawText(QRectF(18, h - 28, 280, 20), Qt.AlignLeft, f"{self.name.upper()} \u00b7 APRICOT DIGITAL")
-        p.setPen(RED)
-        p.drawText(QRectF(w - 258, h - 28, 240, 20), Qt.AlignRight, STATE_TEXT.get(self.state, "") or "STANDING BY")
+        p.setBrush(acc)
+        p.drawEllipse(QPointF(pill.left() + 16, pill.center().y()), 3.5, 3.5)
+        p.setPen(fg)
+        p.drawText(QRectF(pill.left() + 28, pill.top(), 98, 26), Qt.AlignLeft | Qt.AlignVCenter, label[:12])
+        # logo + ring
+        cx, cy = 80, 108
+        pulse = 1 + (0.03 * math.sin(t * 6) if busy else 0.0)
+        pen = QPen(acc, 1)
+        pen.setStyle(Qt.CustomDashLine)
+        pen.setDashPattern([2, 6])
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.save()
+        p.translate(cx, cy)
+        p.rotate(t * 15)
+        p.drawEllipse(QPointF(0, 0), 58 * pulse, 58 * pulse)
+        p.restore()
+        if not self.logo.isNull():
+            sz = 88 * pulse
+            p.drawPixmap(QRectF(cx - sz / 2, cy - sz / 2, sz, sz), self.logo, QRectF(self.logo.rect()))
+        # headline
+        x = 168
+        p.setFont(mono)
+        p.setPen(dim)
+        p.drawText(QRectF(x, 62, w - x - 10, 18), Qt.AlignLeft, f"\u25a0  {self.name.upper()} \u00b7 STANDING BY" if not busy else f"\u25a0  {label}")
+        hf = QFont(DISPLAY, 27, QFont.Medium)
+        hf.setLetterSpacing(QFont.PercentageSpacing, 96)
+        p.setFont(hf)
+        p.setPen(fg)
+        p.drawText(QRectF(x, 82, w - x - 10, 44), Qt.AlignLeft | Qt.AlignVCenter, "Ask. Jarvis")
+        p.setPen(acc)
+        p.drawText(QRectF(x, 120, w - x - 10, 44), Qt.AlignLeft | Qt.AlignVCenter, "finds it.")
+        p.setFont(mono)
+        p.setPen(dim)
+        p.drawText(QRectF(22, h - 22, w - 30, 18), Qt.AlignLeft | Qt.AlignVCenter,
+                   "fig. 01 \u00b7 invoices, receipts, photos, whatsapp files.")
 
 
 class PhoneWindow(QWidget):
@@ -742,7 +819,6 @@ class PhoneWindow(QWidget):
         import io
         import qrcode
         self.setWindowTitle("Connect my phone")
-        self.setStyleSheet(QSS)
         lay = QVBoxLayout(self)
         t = QLabel("Point your phone's camera at this code")
         t.setAlignment(Qt.AlignCenter)
@@ -775,7 +851,6 @@ class HistoryWindow(QWidget):
         from PySide6.QtWidgets import QLineEdit, QListWidget, QTextBrowser
         self.memory = memory
         self.setWindowTitle("Chat history")
-        self.setStyleSheet(QSS)
         self.resize(820, 600)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search all chats...  e.g. Khan Traders")
@@ -804,13 +879,12 @@ class HistoryWindow(QWidget):
         for ts, role, text in rows:
             t = _dt.datetime.fromtimestamp(ts)
             stamp = t.strftime(("%d %b " if with_date else "") + "%I:%M:%S %p").lstrip("0")
-            who, color = ("YOU", "#b98e68") if role == "user" else ("JARVIS", "#ffb347")
+            who, color = ("YOU", P["dim"]) if role == "user" else ("JARVIS", P["accent"])
             safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-            border = "#ff6b57" if role != "user" else "#5a2a1c"
-            out.append(f'<div style="border-left:3px solid {border};margin:8px 0;padding-left:10px">'
-                       f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span>'
-                       f'<span style="color:#8a6a55;font-size:10px">&nbsp;&nbsp;{stamp}</span><br>{safe}</div>')
-        return "".join(out) or '<p style="color:#8a6a55">Nothing here yet.</p>'
+            out.append(f'<div style="margin:10px 0">'
+                       f'<span style="color:{color};font-family:{MONO};font-size:10px">{who}&nbsp;&middot;&nbsp;{stamp}</span>'
+                       f'<br><span style="font-size:15px">{safe}</span></div>')
+        return "".join(out) or f'<p style="color:{P["dim"]}">Nothing here yet.</p>'
 
     def refresh(self):
         import datetime as _dt
@@ -837,7 +911,7 @@ class HistoryWindow(QWidget):
         if not q:
             return self.refresh()
         rows = self.memory.chat_search(q)
-        head = f'<p style="color:#ffb347">{len(rows)} message(s) containing "{q}", newest first</p>'
+        head = f'<p style="color:{P["accent"]}">{len(rows)} message(s) containing "{q}", newest first</p>'
         self.view.setHtml(head + self._html(rows, with_date=True))
 
 
@@ -862,78 +936,139 @@ class ChatWindow(QWidget):
         ("SETTINGS", "settings", "Change voice, name, folders and more"),
     ]
 
+    theme_changed = Signal(str)
+    talk = Signal()
+
     def __init__(self, bridge: Bridge, name: str, memory=None):
         super().__init__()
         self.memory, self._history_win = memory, None
         self.setWindowTitle(f"{name} by Apricot Digital")
-        self.setStyleSheet(QSS)
-        self.resize(560, 720)
+        self.resize(560, 760)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 14)
-        lay.setSpacing(10)
+        lay.setContentsMargins(0, 0, 0, 16)
+        lay.setSpacing(8)
         lay.addWidget(HoloHeader(bridge, name))
         from PySide6.QtWidgets import QGridLayout, QProgressBar
-        grid = QGridLayout()
-        grid.setContentsMargins(14, 0, 14, 0)
-        grid.setSpacing(6)
-        for i, (label, act, tip) in enumerate(self.TOOLBAR):
-            b = QPushButton(label)
-            b.setObjectName("ghost")
-            b.setToolTip(tip)
-            b.setStyleSheet("padding:6px 4px;font-size:11px;letter-spacing:1px")
-            b.clicked.connect(lambda _=False, a=act: self.action.emit(a))
-            grid.addWidget(b, i // 6, i % 6)
-        lay.addLayout(grid)
-        self.usage = QProgressBar()
-        self.usage.setRange(0, 100)
-        self.usage.setFixedHeight(16)
-        self.usage.setToolTip("This month's AI budget used (estimate). Say 'set my budget to 10 dollars' to change it.")
-        ub = QHBoxLayout()
-        ub.setContentsMargins(14, 0, 14, 0)
-        ub.addWidget(self.usage)
-        lay.addLayout(ub)
+        # stat rows [01] [02] [03]
+        self.rows = {}
+        box = QVBoxLayout()
+        box.setContentsMargins(28, 0, 28, 0)
+        box.setSpacing(0)
+        for i, (key, title) in enumerate([("files", "FILES KNOWN"), ("chats", "WHATSAPP CHATS SYNCED"), ("usage", "AI USAGE")]):
+            r = QWidget()
+            r.setStyleSheet(f"border-top:1px solid {P['line']};" + (f"border-bottom:1px solid {P['line']};" if i == 2 else ""))
+            h = QHBoxLayout(r)
+            h.setContentsMargins(0, 7, 0, 7)
+            idx = QLabel(f"[0{i + 1}]")
+            idx.setStyleSheet(f"border:none;color:{P['accent']};font-family:'{MONO}';font-size:11px")
+            ttl = QLabel(title)
+            ttl.setStyleSheet(f"border:none;font-family:'{MONO}';font-size:11px")
+            val = QLabel("-")
+            val.setStyleSheet(f"border:none;font-family:'{MONO}';font-size:12px")
+            h.addWidget(idx)
+            h.addWidget(ttl, 1)
+            if key == "usage":
+                self.usage = QProgressBar()
+                self.usage.setRange(0, 100)
+                self.usage.setTextVisible(False)
+                self.usage.setFixedHeight(3)
+                self.usage.setFixedWidth(120)
+                self.usage.setToolTip("This month's AI budget used (estimate). Say 'set my budget to 10 dollars' to change it.")
+                h.addWidget(self.usage)
+            h.addWidget(val)
+            self.rows[key] = val
+            box.addWidget(r)
+        lay.addLayout(box)
         self._usage_timer = QTimer(self)
         self._usage_timer.timeout.connect(self._refresh_usage)
         self._usage_timer.start(5000)
         self._refresh_usage()
         self.log = QTextBrowser()
         self.log.setOpenExternalLinks(True)
-        self.input = QLineEdit()
-        self.input.setPlaceholderText(f"Say or type...  e.g. \"sales invoices from WhatsApp\"")
-        self.input.returnPressed.connect(self._send)
-        self.speak = QCheckBox("Speak replies aloud")
-        send = QPushButton("SEND")
-        send.clicked.connect(self._send)
-        row = QHBoxLayout()
-        row.setContentsMargins(14, 0, 14, 0)
-        row.addWidget(self.input, 1)
-        row.addWidget(send)
         body = QHBoxLayout()
-        body.setContentsMargins(14, 0, 14, 0)
+        body.setContentsMargins(28, 6, 28, 0)
         body.addWidget(self.log)
         lay.addLayout(body, 1)
+        # toolbar pills
+        grid = QGridLayout()
+        grid.setContentsMargins(28, 4, 28, 0)
+        grid.setSpacing(6)
+        for i, (label, act, tip) in enumerate(self.TOOLBAR):
+            b = QPushButton(label)
+            b.setObjectName("pill")
+            b.setToolTip(tip)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, a=act: self.action.emit(a))
+            grid.addWidget(b, i // 4, i % 4)
+        lay.addLayout(grid)
+        # prompt pill
+        self.input = QLineEdit()
+        self.input.setObjectName("prompt")
+        self.input.setPlaceholderText('>  ask jarvis   e.g. "sales invoices from WhatsApp"')
+        self.input.returnPressed.connect(self._send)
+        send = QPushButton("SEND")
+        send.setCursor(Qt.PointingHandCursor)
+        send.clicked.connect(self._send)
+        mic = QPushButton("MIC")
+        mic.setObjectName("round")
+        mic.setFixedSize(44, 44)
+        mic.setStyleSheet(f"font-family:'{MONO}';font-size:9px;color:{P['fg']}")
+        mic.setToolTip("Talk to Jarvis")
+        mic.clicked.connect(self.talk.emit)
+        row = QHBoxLayout()
+        row.setContentsMargins(22, 4, 22, 0)
+        row.setSpacing(8)
+        row.addWidget(self.input, 1)
+        row.addWidget(mic)
+        row.addWidget(send)
         lay.addLayout(row)
+        self.speak = QCheckBox("Speak replies aloud")
+        theme = QPushButton("LIGHT" if THEME == "dark" else "DARK")
+        theme.setObjectName("ghost")
+        theme.setCursor(Qt.PointingHandCursor)
+        theme.clicked.connect(self._toggle_theme)
+        self.theme_btn = theme
         chk = QHBoxLayout()
-        chk.setContentsMargins(14, 0, 14, 0)
+        chk.setContentsMargins(28, 0, 28, 0)
         chk.addWidget(self.speak)
+        chk.addStretch(1)
+        chk.addWidget(theme)
         lay.addLayout(chk)
+        self._style_usage(0)
         self._replay()
         bridge.chat_sig.connect(self.add)
+
+    def _toggle_theme(self):
+        new = "light" if THEME == "dark" else "dark"
+        set_theme(new)
+        self.theme_changed.emit(new)
+        self.theme_btn.setText("LIGHT" if new == "dark" else "DARK")
+        self._style_usage(self.usage.value())
+        self.log.clear()
+        self._replay()
+        for w in self.findChildren(QWidget):
+            w.update()
+
+    def _style_usage(self, pct):
+        self.usage.setStyleSheet(f"QProgressBar{{border:none;background:{P['soft']}}}"
+                                 f"QProgressBar::chunk{{background:{P['accent']}}}")
 
     def _refresh_usage(self):
         try:
             import usage
             sn = usage.snapshot()
             pct = int(round(sn["percent"]))
-            hot = pct >= 80
             self.usage.setValue(pct)
-            self.usage.setFormat(f"AI USAGE  {pct}%   (${sn['cost']:.2f} of ${sn['budget']:.2f} this month)")
-            self.usage.setStyleSheet(
-                "QProgressBar{border:1px solid #5a2a1c;background:#120706;color:#ffe3b8;text-align:center;"
-                "font-size:10px;letter-spacing:2px}"
-                f"QProgressBar::chunk{{background:{'#ff6b57' if hot else '#b97a2a'}}}")
+            self.rows["usage"].setText(f"{pct}% \u00b7 ${sn['cost']:.2f}")
         except Exception:
-            self.usage.setFormat("AI USAGE  -")
+            self.rows["usage"].setText("-")
+        try:
+            import docsearch
+            c = docsearch._db()
+            self.rows["files"].setText(str(c.execute("select count(*) from docs").fetchone()[0]))
+            self.rows["chats"].setText(str(c.execute("select count(distinct chat) from docs where chat is not null and chat!=''").fetchone()[0]))
+        except Exception:
+            pass
 
     def _replay(self):
         """Show the latest earlier messages when the window opens, so the conversation never starts blank."""
@@ -947,8 +1082,8 @@ class ChatWindow(QWidget):
         for ts, role, text in old:
             self.add(role, text, ts=ts, dim=True)
         if old:
-            self.log.append('<div style="color:#8a6a55;font-size:10px;letter-spacing:3px;margin:10px 0">'
-                            '&mdash;&mdash; EARLIER CHATS ABOVE &middot; USE HISTORY FOR ALL OF THEM &mdash;&mdash;</div>')
+            self.log.append(f'<div style="color:{P["dim"]};font-family:{MONO};font-size:10px;margin:10px 0">'
+                            '&mdash; earlier chats above &middot; use history for all of them &mdash;</div>')
 
     def show_history(self):
         if not self.memory:
@@ -973,15 +1108,13 @@ class ChatWindow(QWidget):
         elif getattr(self, "_asked_at", None):
             stamp += f"  ·  answered in {(now - self._asked_at).total_seconds():.0f}s"
             self._asked_at = None  # later notices (scan progress) are not answers
-        who, color = ("YOU", "#b98e68") if role == "user" else ("JARVIS", "#ffb347")
+        who, color = ("YOU", P["dim"]) if role == "user" else ("JARVIS", P["accent"])
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        card = "border-left:3px solid #ff6b57;" if role != "user" else "border-left:3px solid #5a2a1c;"
         if dim:
-            card += "opacity:0.6;"
-            safe = f'<span style="color:#a08a78">{safe}</span>' 
-        self.log.append(f'<div style="{card}margin:8px 0;padding-left:10px">'
-                        f'<span style="color:{color};font-size:11px;letter-spacing:3px"><b>{who}</b></span>'
-                        f'<span style="color:#8a6a55;font-size:10px">&nbsp;&nbsp;{stamp}</span><br>{safe}</div>')
+            safe = f'<span style="color:{P["dim"]}">{safe}</span>'
+        self.log.append(f'<div style="margin:10px 0">'
+                        f'<span style="color:{color};font-family:{MONO};font-size:10px">{stamp}&nbsp;&nbsp;{who}</span>'
+                        f'<br><span style="font-size:15px">{safe}</span></div>')
 
     def _send(self):
         t = self.input.text().strip()

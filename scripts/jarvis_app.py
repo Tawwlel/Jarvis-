@@ -125,6 +125,9 @@ def main():
             pass
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis by Apricot Digital")
+    import ui as _ui
+    _ui.load_fonts()
+    _ui.set_theme(load_config().get("ui_theme", "dark"), app)
     from PySide6.QtGui import QIcon
     if Path(LOGO).exists():
         app.setWindowIcon(QIcon(LOGO))  # every window (chat, settings, history, phone) wears the logo
@@ -193,6 +196,8 @@ def main():
                 lambda t, sp: keep["assistant"].submit_text(t, sp) if keep["assistant"]
                 else keep["chat"].add("assistant", "One moment, I'm still starting up."))
             keep["chat"].action.connect(chat_action)
+            keep["chat"].talk.connect(lambda: keep["assistant"] and threading.Thread(target=keep["assistant"].talk, daemon=True).start())
+            keep["chat"].theme_changed.connect(lambda t: save_config({**load_config(), "ui_theme": t}))
         keep["chat"].show()
         keep["chat"].raise_()
 
