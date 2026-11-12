@@ -230,6 +230,9 @@ class Brain:
                         reply = NEEDS_ONLINE
                     else:  # light model by default (fast); heavy only for clearly harder questions
                         reply = self.local_answer(system, heavy=bool(HARD_HINTS.search(text))) or NO_KEY
+                elif __import__("usage").blocked() and not re.search(r"budget|usage|limit", text, re.I):
+                    reply = ("This month's AI budget is used up, so I can't think online right now. Say 'set my budget "
+                             "to 10 dollars' to continue. I can still find your files.")
                 else:
                     model = self.models["tier2_cloud"] if tier == "sonnet" else self.models["tier1_cloud"]
                     import agents

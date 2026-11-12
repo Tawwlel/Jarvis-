@@ -69,7 +69,19 @@ class AnthropicLLM:
         text = "".join(b.text for b in resp.content if b.type == "text")
         calls = [{"id": b.id, "name": b.name, "input": b.input}
                  for b in resp.content if b.type == "tool_use"]
+        _count(model, resp)
         return LLMResult(text, calls)
+
+
+def _count(model, resp):
+    """Feed the usage meter (never let counting break an answer)."""
+    try:
+        import usage
+        u = resp.usage
+        usage.record(model, int(getattr(u, "input_tokens", 0) or 0), int(getattr(u, "output_tokens", 0) or 0),
+                     int(getattr(u, "cache_read_input_tokens", 0) or 0))
+    except Exception as e:
+        print("[usage]", e)
 
 
 class OpenAICompatLLM:

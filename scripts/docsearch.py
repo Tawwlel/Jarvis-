@@ -28,7 +28,8 @@ WA_DIR = DATA / "whatsapp"
 OUT_DIR = Path.home() / "Documents" / "Jarvis Files"
 EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".docx", ".xlsx", ".txt", ".csv"}
 IMG = {".jpg", ".jpeg", ".png", ".webp"}
-SKIP = {"node_modules", "__pycache__", "venv", ".venv", "AppData", "$RECYCLE.BIN", "Jarvis Files"}
+SKIP = {"node_modules", "__pycache__", "venv", ".venv", "AppData", "$RECYCLE.BIN", "Jarvis Files", "site-packages",
+        "SAVEDATA", "PPSSPP", "Program Files", "Program Files (x86)", "Windows"}
 
 TYPES = {  # canonical type -> words that mean it (checked longest first)
     "sales invoice": ["sales invoice", "sale invoice", "sales inv", "tax invoice", "sales bill", "sales invoices",
@@ -88,7 +89,30 @@ def _db():
     c.execute("""CREATE TABLE IF NOT EXISTS docs(path TEXT PRIMARY KEY, source TEXT, chat TEXT, name TEXT,
                  ext TEXT, mtime REAL, size INTEGER, text TEXT, doc_type TEXT, amount TEXT, doc_date TEXT,
                  v2 INTEGER, fields TEXT)""")
+    _migrate(c)
     return c
+
+
+INDEX_REV = 3  # bump when classify/find_date/junk rules change: stored rows are re-labelled from their saved text
+
+
+def _migrate(c):
+    c.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
+    row = c.execute("SELECT v FROM meta WHERE k='rev'").fetchone()
+    if row and row[0] == str(INDEX_REV):
+        return
+    try:
+        for path, name, text, mtime in c.execute("SELECT path,name,text,mtime FROM docs").fetchall():
+            if _junk(name):
+                c.execute("DELETE FROM docs WHERE path=?", (path,))
+                continue
+            text = text or ""
+            c.execute("UPDATE docs SET doc_type=?, doc_date=? WHERE path=?",
+                      (classify(name, text), find_date(name, text, mtime or 0), path))
+        c.execute("REPLACE INTO meta VALUES('rev',?)", (str(INDEX_REV),))
+        c.commit()
+    except sqlite3.DatabaseError as e:
+        print("[docs] migrate:", e)
 
 
 # ---------------- reading files ----------------
@@ -217,6 +241,8 @@ def classify(name: str, text: str) -> str:
     Spreadsheets/lists holding many document numbers are 'register' (an invoice list, not an invoice)."""
     fname = _norm(Path(name).stem)
     head = " ".join(text.lower().split()[:40])
+    if re.match(r"screenshot|screen shot|snip", fname):
+        return "screenshot"
     if NOT_DOCS.search(fname + " " + head):
         return ""
     if len(set(m.lower() for m in DOC_NO.findall(text))) >= 3 or re.search(r"\b(list|register|ledger|summary)\b", fname):
@@ -227,6 +253,12 @@ def classify(name: str, text: str) -> str:
     if _has(TYPES["agreement"], fname) or _has(TYPES["agreement"], title):
         return "agreement"  # an agreement that mentions "invoice date" in its terms is not an invoice
     by_name, by_head = first(fname), first(head)
+    if Path(name).suffix.lower() in (".xlsx", ".xls", ".csv") and not by_name:
+        # a workbook that merely mentions invoices in its first cells is a list/worksheet, not an invoice
+        # a real invoice/credit-note workbook carries its own number ("Credit No: CN-1326", "Invoice #12");
+        # a worksheet that only mentions invoices does not
+        numbered = DOC_NO.search(text) or re.search(r"\b(invoice|inv|credit|quotation|quote|receipt|order|challan|bill)\s*(no|number|#)", head)
+        return by_head if (by_head and numbered) else ("register" if by_head else "")
     # a specific type in the file name wins; a bare "inv"/"invoice" name defers to the heading
     if by_name and by_name != "invoice":
         return by_name
@@ -277,8 +309,8 @@ def find_date(name: str, text: str, mtime: float) -> str:
     m = re.search(r"\b([a-z]{3,9})\.?\s+(\d{1,2}),?\s+(20\d\d)\b", t)  # Nov 4, 2026
     if m and m.group(1)[:3] in MON_ALIAS:
         return f"{m.group(3)}-{MON_ALIAS[m.group(1)[:3]] + 1:02d}-{int(m.group(2)):02d}"
-    m = re.search(r"(20\d\d)(\d\d)(\d\d)", name)
-    if m and 1 <= int(m.group(2)) <= 12:
+    m = re.search(r"(?<!\d)(20\d\d)[-_. ]?(\d\d)[-_. ]?(\d\d)(?!\d)", name)  # WhatsApp Image 2026-11-11 / IMG_20261111
+    if m and 1 <= int(m.group(2)) <= 12 and 1 <= int(m.group(3)) <= 31:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
     return time.strftime("%Y-%m-%d", time.localtime(mtime))
 
@@ -308,11 +340,17 @@ def _folders(cfg: dict) -> list[Path]:
     return out
 
 
+def _junk(name: str) -> bool:
+    """Office lock files (~$x.docx), editor backups and system files are never documents."""
+    n = name.lower()
+    return n.startswith(("~$", ".~", "~wr")) or n in ("thumbs.db", "desktop.ini", "icon0.png")
+
+
 def _walk(root: Path):
     for p in root.rglob("*"):
         if p.is_file() and p.suffix.lower() in EXTS:
             rel = p.relative_to(root).parts
-            if any(x.startswith(".") or x in SKIP for x in rel[:-1]):
+            if any(x.startswith(".") or x in SKIP for x in rel[:-1]) or _junk(p.name):
                 continue
             yield p
 
@@ -569,6 +607,16 @@ def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200
     r = _search(query, source, doc_type, limit)
     if r["mode"] != "close" and r["items"]:
         return r
+    if not r["items"] and r.get("type"):
+        # nothing is labelled with that type: fall back to files that SAY it in their name ("Payment Invoice.pdf")
+        word = r["type"].split()[-1]
+        r2 = _search(query, source, "", limit)
+        named = [i for i in r2["items"] if word in i["name"].lower()]
+        if not r["terms"]:
+            named = named or [i for i in _search("", source, "", 100000)["items"] if word in i["name"].lower()]
+        if named:
+            r2.update(items=named[:limit], total=len(named), mode="specific", type=r["type"])
+            return r2
     q2, note = _repair(query)
     if note:
         r2 = _search(q2, source, doc_type, limit)
@@ -879,8 +927,27 @@ def doc_search(query, source="any"):
         return _not_ready()
     threading.Thread(target=background_index, args=(cfg, 60), daemon=True).start()  # pick up new files, at most once a minute
     r = search(query, source)
+    if r.get("mode") in ("close", "meaning"):
+        empty = _empty_chat(query)
+        if empty:
+            return (f"The WhatsApp chat '{empty}' is linked and has been read, but no documents or photos were saved "
+                    f"from it. Say that plainly; do not guess other files.")
     note_phone_files(r.get("items", []))
     return _fmt(r)
+
+
+def _empty_chat(query: str) -> str:
+    """Name of a synced WhatsApp chat the user mentioned that has no saved files (e.g. 'Family group'), else ''."""
+    try:
+        words = [w for w in re.findall(r"[a-z0-9']+", query.lower()) if len(w) >= 4 and w not in STOP]
+        have = {c for (c,) in _db().execute("SELECT DISTINCT chat FROM docs WHERE chat!=''")}
+        synced = {p.name for p in WA_DIR.iterdir() if p.is_dir()} if WA_DIR.exists() else set()
+        for chat in sorted(synced - have):
+            if any(w in chat.lower() for w in words):
+                return chat
+    except Exception:
+        pass
+    return ""
 
 
 def note_phone_files(items):

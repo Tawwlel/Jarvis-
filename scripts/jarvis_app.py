@@ -183,8 +183,25 @@ def main():
             keep["chat"].submitted.connect(
                 lambda t, sp: keep["assistant"].submit_text(t, sp) if keep["assistant"]
                 else keep["chat"].add("assistant", "One moment, I'm still starting up."))
+            keep["chat"].action.connect(chat_action)
         keep["chat"].show()
         keep["chat"].raise_()
+
+    def chat_action(a):
+        """A button on the chat window's toolbar."""
+        if a == "history":
+            keep["chat"].show_history()
+        elif a == "settings":
+            open_settings(False)
+        elif a == "phone":
+            (keep.get("connect_phone") or (lambda: keep["chat"].add("assistant", "The phone link isn't ready yet.")))()
+        elif keep.get("tray_ask"):
+            keep["tray_ask"](a)
+        elif a.startswith("tool:"):
+            keep["chat"].add("assistant", "That button needs the tray icon; use the chat instead.")
+        elif keep["assistant"]:
+            keep["chat"].add("user", a)
+            keep["assistant"].submit_text(a, False)
 
     def run_selftest():
         open_chat()
@@ -281,6 +298,7 @@ def main():
                     except Exception as e:
                         psig.fail.emit(f"I couldn't start the phone link: {e}")
                 threading.Thread(target=go, daemon=True).start()
+            keep["tray_ask"], keep["connect_phone"] = tray_ask, connect_phone
             keep["tray"] = make_tray(app, LOGO, name(), ask, open_chat, lambda: open_settings(False), app.quit,
                                      on_selftest=run_selftest, on_speedtest=run_speedtest, on_ask=tray_ask,
                                      on_history=lambda: (open_chat(), keep["chat"].show_history()),

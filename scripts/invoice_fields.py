@@ -176,6 +176,11 @@ def vision_receipt(path: Path, model="claude-haiku-5-5") -> dict:
             {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                          "data": base64.b64encode(buf.getvalue()).decode()}},
             {"type": "text", "text": RECEIPT_PROMPT}]}])
+    try:
+        import usage
+        usage.record(model, msg.usage.input_tokens, msg.usage.output_tokens)
+    except Exception:
+        pass
     raw = "".join(getattr(b, "text", "") for b in msg.content)
     m = re.search(r"\{.*\}", raw, re.S)
     return json.loads(m.group(0)) if m else {}

@@ -844,6 +844,23 @@ class HistoryWindow(QWidget):
 class ChatWindow(QWidget):
     """The command window: holographic header, conversation, and a message bar. Spoken chats show up here too."""
     submitted = Signal(str, bool)
+    action = Signal(str)  # a toolbar button: "tool:<name>", "history", "settings", "phone" or a sentence to ask
+
+    # (label, what it does, tooltip)
+    TOOLBAR = [
+        ("WHATSAPP", "tool:whatsapp_link", "Link WhatsApp (shows the QR code)"),
+        ("SYNC", "tool:whatsapp_sync", "Fetch new WhatsApp files now"),
+        ("SCAN", "tool:scan_everything", "Read all computer files and WhatsApp chats"),
+        ("HISTORY", "history", "All earlier chats, by day, with search"),
+        ("AGENTS", "tool:agents_status", "See which helper does what"),
+        ("PHONE", "phone", "Connect my phone to Jarvis"),
+        ("EMAIL", "Give me my email digest.", "Check my email"),
+        ("BACKUP", "tool:backup_now", "Back up Jarvis now"),
+        ("USAGE", "tool:usage_status", "How much of this month's AI budget is used"),
+        ("FEATURES", "What can you do? List your features and give me an example of each.", "What Jarvis can do"),
+        ("HELP", "tool:setup_help", "Step-by-step setup help"),
+        ("SETTINGS", "settings", "Change voice, name, folders and more"),
+    ]
 
     def __init__(self, bridge: Bridge, name: str, memory=None):
         super().__init__()
@@ -855,6 +872,30 @@ class ChatWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 14)
         lay.setSpacing(10)
         lay.addWidget(HoloHeader(bridge, name))
+        from PySide6.QtWidgets import QGridLayout, QProgressBar
+        grid = QGridLayout()
+        grid.setContentsMargins(14, 0, 14, 0)
+        grid.setSpacing(6)
+        for i, (label, act, tip) in enumerate(self.TOOLBAR):
+            b = QPushButton(label)
+            b.setObjectName("ghost")
+            b.setToolTip(tip)
+            b.setStyleSheet("padding:6px 4px;font-size:11px;letter-spacing:1px")
+            b.clicked.connect(lambda _=False, a=act: self.action.emit(a))
+            grid.addWidget(b, i // 6, i % 6)
+        lay.addLayout(grid)
+        self.usage = QProgressBar()
+        self.usage.setRange(0, 100)
+        self.usage.setFixedHeight(16)
+        self.usage.setToolTip("This month's AI budget used (estimate). Say 'set my budget to 10 dollars' to change it.")
+        ub = QHBoxLayout()
+        ub.setContentsMargins(14, 0, 14, 0)
+        ub.addWidget(self.usage)
+        lay.addLayout(ub)
+        self._usage_timer = QTimer(self)
+        self._usage_timer.timeout.connect(self._refresh_usage)
+        self._usage_timer.start(5000)
+        self._refresh_usage()
         self.log = QTextBrowser()
         self.log.setOpenExternalLinks(True)
         self.input = QLineEdit()
@@ -863,13 +904,9 @@ class ChatWindow(QWidget):
         self.speak = QCheckBox("Speak replies aloud")
         send = QPushButton("SEND")
         send.clicked.connect(self._send)
-        hist = QPushButton("HISTORY")
-        hist.setToolTip("See all your earlier chats")
-        hist.clicked.connect(self.show_history)
         row = QHBoxLayout()
         row.setContentsMargins(14, 0, 14, 0)
         row.addWidget(self.input, 1)
-        row.addWidget(hist)
         row.addWidget(send)
         body = QHBoxLayout()
         body.setContentsMargins(14, 0, 14, 0)
@@ -882,6 +919,21 @@ class ChatWindow(QWidget):
         lay.addLayout(chk)
         self._replay()
         bridge.chat_sig.connect(self.add)
+
+    def _refresh_usage(self):
+        try:
+            import usage
+            sn = usage.snapshot()
+            pct = int(round(sn["percent"]))
+            hot = pct >= 80
+            self.usage.setValue(pct)
+            self.usage.setFormat(f"AI USAGE  {pct}%   (${sn['cost']:.2f} of ${sn['budget']:.2f} this month)")
+            self.usage.setStyleSheet(
+                "QProgressBar{border:1px solid #5a2a1c;background:#120706;color:#ffe3b8;text-align:center;"
+                "font-size:10px;letter-spacing:2px}"
+                f"QProgressBar::chunk{{background:{'#ff6b57' if hot else '#b97a2a'}}}")
+        except Exception:
+            self.usage.setFormat("AI USAGE  -")
 
     def _replay(self):
         """Show the latest earlier messages when the window opens, so the conversation never starts blank."""
