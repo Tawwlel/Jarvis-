@@ -733,7 +733,19 @@ class SettingsWindow(QWidget):
         f.addRow("Provider", self.tts_p)
         f.addRow("ElevenLabs key", self.k_eleven)
         f.addRow("ElevenLabs voice", self.eleven_voice)
-        tabs.addTab(_scrolled(km), "Keys and models")
+        km_page = _scrolled(km)
+        import plan as _plan
+        if _plan.customer_mode(cfg):
+            # customers never see keys, models or credit. Apricot Digital staff press Ctrl+Shift+K during setup.
+            from PySide6.QtGui import QKeySequence, QShortcut
+            def _show_keys():
+                if tabs.indexOf(km_page) < 0:
+                    tabs.addTab(km_page, "Keys and models")
+                tabs.setCurrentWidget(km_page)
+            self._keys_sc = QShortcut(QKeySequence("Ctrl+Shift+K"), self)
+            self._keys_sc.activated.connect(_show_keys)
+        else:
+            tabs.addTab(km_page, "Keys and models")
 
         # ---------------- Privacy ----------------
         pr = QWidget()
@@ -1051,7 +1063,7 @@ class ChatWindow(QWidget):
         ("PHONE", "phone", "Connect my phone to Jarvis"),
         ("EMAIL", "Give me my email digest.", "Check my email"),
         ("BACKUP", "tool:backup_now", "Back up Jarvis now"),
-        ("USAGE", "tool:usage_status", "How much of this month's usage is used, out of 100"),
+        ("PLAN", "tool:usage_status", "Is my Jarvis plan active?"),
         ("FEATURES", "What can you do? List your features and give me an example of each.", "What Jarvis can do"),
         ("HELP", "tool:setup_help", "Step-by-step setup help"),
         ("SETTINGS", "settings", "Change voice, name, folders and more"),
@@ -1075,7 +1087,10 @@ class ChatWindow(QWidget):
         box = QVBoxLayout()
         box.setContentsMargins(28, 0, 28, 0)
         box.setSpacing(0)
-        for i, (key, title) in enumerate([("files", "FILES KNOWN"), ("wa", "WHATSAPP LAST SYNCED"), ("pc", "PC LAST SYNCED"), ("usage", "AI USAGE")]):
+        import plan as _plan
+        self._customer = _plan.customer_mode()
+        for i, (key, title) in enumerate([("files", "FILES KNOWN"), ("wa", "WHATSAPP LAST SYNCED"), ("pc", "PC LAST SYNCED"),
+                                          ("usage", "MY PLAN" if self._customer else "AI USAGE")]):
             r = QWidget()
             r.setStyleSheet(f"border-top:1px solid {P['line']};" + (f"border-bottom:1px solid {P['line']};" if i == 3 else ""))
             h = QHBoxLayout(r)
@@ -1095,7 +1110,8 @@ class ChatWindow(QWidget):
                 self.usage.setFixedHeight(3)
                 self.usage.setFixedWidth(120)
                 self.usage.setToolTip("Usage this month, out of 100.")
-                h.addWidget(self.usage)
+                if not self._customer:  # customers see only whether the plan is active, never amounts
+                    h.addWidget(self.usage)
             h.addWidget(val)
             self.rows[key] = val
             box.addWidget(r)
@@ -1186,7 +1202,11 @@ class ChatWindow(QWidget):
             import usage
             sn = usage.snapshot()
             self.usage.setValue(max(1, int(round(sn["percent"]))) if sn["percent"] > 0 else 0)
-            self.rows["usage"].setText(f"{usage.label(sn['percent'])} / 100")
+            if self._customer:
+                import plan
+                self.rows["usage"].setText(plan.status()[0])
+            else:
+                self.rows["usage"].setText(f"{usage.label(sn['percent'])} / 100")
         except Exception:
             self.rows["usage"].setText("-")
         try:

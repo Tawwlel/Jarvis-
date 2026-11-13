@@ -320,6 +320,22 @@ def main():
                                      on_phone=connect_phone)
         open_chat()
         threading.Thread(target=work, daemon=True).start()
+        if not keep.get("care"):  # six helpers that check and repair Jarvis every 30 minutes
+            import care
+            def _last_activity():
+                try:
+                    r = mem.chat_recent(1)
+                    return r[-1][0] if r else 0
+                except Exception:
+                    return 0
+            keep["care"] = care.CareTeam(cfg, mem, lambda t: bridge.chat("assistant", t),
+                                         restart=lambda note: upd.done.emit(note or "updated"),
+                                         last_activity=_last_activity)
+            keep["care"].start()
+        if not keep.get("protect"):  # lock Jarvis's saved data to this computer and this Windows login
+            import data_protect
+            keep["protect"] = threading.Thread(target=data_protect.protect, daemon=True)
+            keep["protect"].start()
         if not keep.get("backup_agent"):
             import backup
             keep["backup_agent"] = backup.BackupAgent(cfg, lambda t: bridge.chat("assistant", t))
@@ -402,14 +418,33 @@ def main():
         keep["upd_timer"] = tick
 
     def open_welcome():
-        win = WelcomeWindow(LOGO)
+        from onboarding import OnboardingWizard, TourWindow, sync_status
+        import plan
+        win = OnboardingWizard(LOGO, preview=preview, customer=plan.customer_mode(cfg))
 
         def started(v):
             cfg["owner_name"], cfg["language"], cfg["onboarded"] = v["owner_name"], v["language"], True
-            if v["key"]:
+            cfg["tone"], cfg["voice"] = v.get("tone", "friendly"), v.get("voice", cfg.get("voice", "amy"))
+            cfg.setdefault("slots", {}).setdefault("tts", {})["urdu_voice"] = v.get("urdu_voice", "ur-PK-AsadNeural")
+            an = v.get("assistant_name", "Jarvis")
+            cfg["assistant_names"] = [an] + [n for n in cfg.get("assistant_names", ["Jarvis"]) if n.lower() != an.lower()]
+            if v.get("key"):
                 store.set("anthropic", v["key"])
+            if v.get("licence_key"):
+                try:
+                    import licence
+                    licence.set_key(v["licence_key"])
+                except Exception as e:
+                    print("[welcome] licence:", e)
             if v["owner_name"]:
                 mem.remember("user_name", v["owner_name"])
+            for k, label in (("business", "user_business_type"), ("work", "user_business_name")):
+                if v.get(k) and v[k] != "Other":
+                    mem.remember(label, v[k])
+            if v.get("email_address"):
+                cfg.setdefault("email", {})["address"] = v["email_address"]
+                if v.get("email_password"):
+                    store.set("email_password", v["email_password"])
             if v.get("backup_email"):
                 cfg.setdefault("backup", {})["email"] = v["backup_email"]
             if v.get("backup_password"):
@@ -417,8 +452,18 @@ def main():
             save_config(cfg)
             who = cfg["owner_name"] or "friend"
             hello = (f"\u062e\u0648\u0634 \u0622\u0645\u062f\u06cc\u062f {who}\u06d4 \u0645\u06cc\u06ba \u062a\u06cc\u0627\u0631 \u06c1\u0648\u06ba\u06d4"
-                     if v["language"] == "ur" else f"All set, {who}. Say hey {name()} whenever you need me.")
+                     if v["language"] == "ur" else f"Welcome, {who}. Say hey {name()} whenever you need me.")
             start_assistant(hello)
+            threading.Thread(target=__import__("data_protect").protect, kwargs={"force": True}, daemon=True).start()
+            open_chat()
+
+            def try_it(q):
+                open_chat()
+                if keep["assistant"]:
+                    keep["chat"].add("user", q)
+                    keep["assistant"].submit_text(q, False)
+            keep["tour"] = TourWindow(LOGO, sync_status, try_it)
+            keep["tour"].show()
             if v.get("scan"):
                 import deep_scan
                 base = {"Documents", "Desktop", "Downloads"}
@@ -445,8 +490,10 @@ def main():
                 def link():
                     try:
                         import whatsapp_reader
-                        bridge.chat("assistant", "Opening WhatsApp. On your phone: WhatsApp > Settings > Linked devices > "
-                                                 "Link a device, then point the phone at the code on the screen.")
+                        bridge.chat("assistant", "Opening WhatsApp in my own browser window. On your phone: WhatsApp > "
+                                                 "Settings > Linked devices > Link a device, then scan the code on the "
+                                                 "screen. I'll sync your WhatsApp in that same window, where it's "
+                                                 "logged in; keep your phone online meanwhile.")
                         msg = whatsapp_reader.link()
                         bridge.chat("assistant", msg + (" I'm collecting your documents in the background now."
                                                         if "linked" in msg else ""))

@@ -69,6 +69,14 @@ def _verify(k: str, status: str, ts: int, sig: str) -> bool:
     return abs(time.time() - ts) < 86400  # an old "active" answer cannot be replayed
 
 
+def _health() -> dict:
+    try:
+        import care
+        return care.anonymous_counts()  # counts and error kinds only: no files, chats, names or questions
+    except Exception:
+        return {}
+
+
 def check(url: str = "") -> str:
     """Report in and learn the licence state. Returns the status ('' when nothing was checked)."""
     k = key()
@@ -77,7 +85,8 @@ def check(url: str = "") -> str:
     import usage
     d = _load()
     body = json.dumps({"key": k, "version": _version(), "usage_pct": usage.percent(), "machine": _machine(),
-                       "used_codes": list(usage._load().get("used_codes", []))[-50:]}).encode()
+                       "used_codes": list(usage._load().get("used_codes", []))[-50:],
+                       "health": _health()}).encode()
     url = url or (CTX.get("cfg", {}).get("licence") or {}).get("url") or URL
     try:
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "User-Agent": "Jarvis"})

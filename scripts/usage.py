@@ -75,6 +75,10 @@ def record(model: str, inp: int, out: int, cached: int = 0):
             _warned.add((d["month"], lvl))
             note = CTX.get("notify")
             if note:
+                import plan
+                if plan.customer_mode():
+                    note(plan.LOW if lvl == 80 else plan.BILL)
+                    continue
                 note(f"Heads up: usage is at {lvl} out of 100 this month." if lvl == 80 else
                      "This month's usage has reached 100 out of 100, so I'll answer only from your files until it's raised. "
                      "Ask Apricot Digital for a top-up code to continue.")
@@ -107,8 +111,11 @@ def snapshot() -> dict:
             "input": d["input"], "output": d["output"], "month": d["month"]}
 
 
-@tool("usage_status", "Show how much of this month's usage allowance has been used, out of 100.", {}, [])
+@tool("usage_status", "Say whether the Jarvis plan is active, running low or needs renewing.", {}, [])
 def usage_status():
+    import plan
+    if plan.customer_mode():
+        return plan.status()[1]
     s = snapshot()
     return (f"Usage this month: {label(s['percent'])} out of 100 ({s['calls']} requests). "
             "It starts again from zero each month.")
@@ -147,6 +154,9 @@ def redeem(code: str) -> str:
         d["budget"] = amount
         _save(d)
     _warned.clear()
+    import plan
+    if plan.customer_mode():
+        return "Done. Your Jarvis plan has been renewed. Thank you!"
     return f"Done. Your monthly usage allowance is increased. You've used {label(percent())} out of 100 so far."
 
 

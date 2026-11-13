@@ -73,9 +73,18 @@ TRIVIAL = re.compile(r"^(hi|hello|hey|thanks|thank you|ok|okay|bye|good (morning
 
 
 def _llm_error_message(e) -> str:
-    """Say what actually went wrong instead of one vague line (a wrong key, no credit and no internet need different fixes)."""
+    """Say what actually went wrong instead of one vague line (a wrong key, no credit and no internet need different fixes).
+    Customers never hear about keys or credit: a key/credit problem is a plan to renew."""
     t = f"{type(e).__name__} {e}".lower()
     code = getattr(e, "status_code", None)
+    try:
+        import plan
+        if plan.customer_mode() and (code in (401, 403) or any(w in t for w in (
+                "credential", "authentication", "invalid x-api-key", "permission", "credit balance", "billing",
+                "spend limit", "usage limit", "api key", "api_key"))):
+            return plan.BILL
+    except Exception:
+        pass
     if code in (401, 403) or "credential" in t or "authentication" in t or "invalid x-api-key" in t or "permission" in t:
         return "My language model key was refused. Check the Anthropic key in Settings, under Keys and models."
     if "credit balance" in t or "billing" in t or "spend limit" in t or "usage limit" in t:
@@ -236,6 +245,13 @@ class Brain:
                                facts=self.mem.facts_text() or "(none yet)")
         from lang import instruction
         system += instruction(self.cfg.get("language", "auto"))
+        try:
+            from lang import tone_rule
+            t = tone_rule(self.cfg)
+            if t:
+                system += "\n" + t
+        except Exception:
+            pass
         if any(t["schema"]["name"].startswith("computer_") for t in self.tools):
             system += COMPUTER_RULES
         red = self._redactor()
@@ -252,13 +268,17 @@ class Brain:
             if reply is None:
                 if not self.llm_ready():
                     # no online key: let the local model answer what it can (no tools)
+                    import plan
                     if ACTION.search(text):
-                        reply = NEEDS_ONLINE
+                        reply = plan.NOT_READY if plan.customer_mode() else NEEDS_ONLINE
                     else:  # light model by default (fast); heavy only for clearly harder questions
-                        reply = self.local_answer(system, heavy=bool(HARD_HINTS.search(text))) or NO_KEY
+                        reply = self.local_answer(system, heavy=bool(HARD_HINTS.search(text))) or (
+                            plan.NOT_READY if plan.customer_mode() else NO_KEY)
                 elif __import__("usage").blocked() and not re.search(r"budget|usage|limit", text, re.I):
                     lic = __import__("licence")
+                    import plan
                     reply = (lic.message() + " I can still find your files." if lic.blocked() else
+                             plan.BILL if plan.customer_mode() else
                              "This month's usage is at 100 out of 100, so I can't think online right now. Contact Apricot Digital "
                              "for a top-up code. I can still find your files.")
                 else:

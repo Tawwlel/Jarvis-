@@ -68,7 +68,7 @@ AGENTS = {
         "prompt": "You are the Keeper agent. Your only job: backups of Jarvis."},
     "guide": {
         "title": "Guide", "job": "explain how to set up or connect anything, and change settings",
-        "tools": ["setup_help", "update_settings", "usage_status", "usage_redeem_code", "licence_set_key", "licence_status"],
+        "tools": ["setup_help", "update_settings", "usage_status", "usage_redeem_code", "licence_set_key", "licence_status", "care_report"],
         "prompt": "You are the Guide agent. Your only job: help the owner set Jarvis up, one step at a time, and "
                   "change settings. Never ask for passwords or keys in chat."},
     "phone": {
@@ -92,7 +92,7 @@ SHARED = ("To the owner you are simply Jarvis: never mention agents, never say '
 
 RULES = [  # first match wins; anything unmatched goes to the coordinator, who can hand it over
     ("jarvis", r"\bagents?\b|\bbots?\b|what can you do|ایجنٹ"),
-    ("guide", r"\b(usage|budget|allowance|licen[cs]e|api cost|cost so far)\b|how much (have i|did i) (used|spent)|\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
+    ("guide", r"\b(health|care team|errors?|issues?|my plan|usage|budget|allowance|licen[cs]e|api cost|cost so far)\b|how much (have i|did i) (used|spent)|\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
               r"set|laga|kar)|settings?\b|سیٹ ?اپ|سیٹپ|کیسے (کنیکٹ|لنک)"),
     ("whatsapp", r"\biphone\b"),  # "iphone backup import" is the WhatsApp agent's, not the Keeper's
     ("phone", r"\b(connect|link|pair|add|set ?up|disconnect|forget|remove)\b.*\b(phone|mobile|iphone app|app)\b|"

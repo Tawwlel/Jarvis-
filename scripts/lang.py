@@ -21,3 +21,16 @@ def instruction(mode: str) -> str:
             "Tool inputs stay in English letters. "
             "Only Urdu and English are used: NEVER reply in Hindi or Devanagari script. If the user's message arrives in "
             "Devanagari (a speech-recognition slip), it is spoken Urdu: understand it as Urdu and reply in Urdu script.")
+
+
+# the tone the customer picked at setup
+TONE_RULES = {
+    "friendly": "Tone: warm and friendly, like a helpful colleague.",
+    "professional": "Tone: polite and professional, like a personal secretary.",
+    "short": "Tone: very short and direct. No small talk.",
+    "respectful": "Tone: very respectful. In Urdu always use 'aap', never 'tum'. In English you may say 'sir' or 'madam'.",
+}
+
+
+def tone_rule(cfg: dict) -> str:
+    return TONE_RULES.get(cfg.get("tone", ""), "")

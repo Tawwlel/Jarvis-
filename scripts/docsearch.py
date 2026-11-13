@@ -1352,8 +1352,13 @@ def _fmt(r: dict, n=12) -> str:
     def where(it):
         locs = it.get("also_in") or ([it["chat"]] if it["chat"] else [])
         if len(locs) > 1:
-            return f" (found in: {', '.join(locs)})"
-        return f" (chat: {it['chat']})" if it["chat"] else (f" (from {it['source']})" if it["source"] in ("email",) else "")
+            return f" (found in WhatsApp chats: {', '.join(locs)})"
+        if it["source"] == "email":
+            return f" (found in email{': ' + it['chat'] if it['chat'] else ''})"
+        if it["chat"]:
+            return f" (found in WhatsApp chat '{it['chat']}')"
+        folder = Path(str(it.get("path", ""))).parent.name
+        return f" (found on this computer, folder '{folder}')" if folder else " (found on this computer)"
     lines = []
     for i, it in enumerate(r["items"][:n], 1):
         line = (f"{i}. {it['name']}" + where(it) + (f" [{it['type']}]" if it["type"] else "")
@@ -1363,6 +1368,8 @@ def _fmt(r: dict, n=12) -> str:
             line += f"\n   matched: \"{it['why']}\""
         lines.append(line)
     more = f"\n...and {r['total'] - n} more." if r["total"] > n else ""
+    head += (" In your answer, say for each file what it is, whose it is, its date and WHERE it was found, e.g. "
+             "'Sales invoice of Zahid & Sons, 12 Mar 2026, found in WhatsApp chat BHAI'.")
     if r.get("ambiguous"):
         head += (" Several files fit equally well: if the user wants ONE, read them the matched lines and ask which "
                  "one they mean, then call doc_choose with their answer.")
