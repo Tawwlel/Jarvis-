@@ -193,6 +193,9 @@ def _open_chat(page, name) -> None:
         pass
 
 
+SIGS = {}  # chat name -> what its row in the chat list showed (time + last message), filled by _chat_names
+
+
 def _chat_names(page, limit, deep=False):
     """The chats in the list. deep=True scrolls the whole list (WhatsApp only draws the visible rows)."""
     names = []
@@ -206,6 +209,10 @@ def _chat_names(page, limit, deep=False):
                 if n and n not in names:
                     names.append(n)
                     new += 1
+                    try:
+                        SIGS[n] = re.sub(r"\s+", " ", row.inner_text())[:200]
+                    except Exception:
+                        pass
         return new
 
     collect()
@@ -221,12 +228,12 @@ def _chat_names(page, limit, deep=False):
     return names[:limit]
 
 
-def _load_history(page, deep: bool, seconds: int = 120):
+def _load_history(page, deep: bool, seconds: int = 60):
     """Scroll a chat upwards so older messages load. Light: a few pulls. Deep: until nothing more arrives."""
     if not deep:
-        for _ in range(3):
+        for _ in range(2):
             page.mouse.wheel(0, -4000)
-            page.wait_for_timeout(800)
+            page.wait_for_timeout(500)
         return
     t0, last, quiet = time.time(), -1, 0
     while time.time() - t0 < seconds and quiet < 3:
@@ -281,7 +288,7 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
             else:  # photos: open the viewer and save it from there (no pointless wait for a direct download)
                 try:
                     m.query_selector("img[src^='blob:']").click()
-                    page.wait_for_timeout(800)
+                    page.wait_for_selector("[data-icon='download'], [aria-label='Download']", timeout=4000)
                     with page.expect_download(timeout=8000) as dl:
                         page.click("[data-icon='download'], [aria-label='Download']")
                     d = dl.value
@@ -344,6 +351,18 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
         page.wait_for_timeout(3000)
         _dismiss_popups(page)
         names = chats or _chat_names(page, chat_limit, deep)
+        sig_file = WA_DIR / ".chat_list.json"
+        try:
+            old_sigs = json.loads(sig_file.read_text(encoding="utf-8"))
+        except Exception:
+            old_sigs = {}
+        if not chats and not deep:  # quick refresh: only chats whose last message changed since last time
+            changed = [n for n in names if SIGS.get(n) != old_sigs.get(n) or not (WA_DIR / _safe(n)).exists()]
+            for n in names:
+                if n not in changed:
+                    result[n] = 0
+            print(f"[wa] {len(changed)} of {len(names)} chats have something new")
+            names = changed
         fails = 0
         deadline = time.time() + 3 * 3600 if deep else None  # a deep scan never runs more than 3 hours
         for i, name in enumerate(names, 1):
@@ -352,7 +371,11 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
                 break
             try:
                 _open_chat(page, name)
-                page.wait_for_timeout(2500)
+                try:  # wait for the messages to appear instead of a fixed pause
+                    page.wait_for_selector(SEL["messages"], timeout=6000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(400)
                 _load_history(page, deep)
                 t_chat = time.time()
                 result[name] = _download_chat(page, name, per_chat, set())
@@ -368,6 +391,12 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
                         pass
             if progress:
                 progress(i, len(names), name)
+            if isinstance(result.get(name), int) and name in SIGS:
+                old_sigs[name] = SIGS[name]
+                try:
+                    sig_file.write_text(json.dumps(old_sigs), encoding="utf-8")
+                except Exception:
+                    pass
         ctx.close()
     return result
 

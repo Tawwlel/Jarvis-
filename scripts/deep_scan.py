@@ -20,9 +20,8 @@ STATE = DATA / "scan.json"
 DEFAULT_HOURS = 12
 _lock = threading.Lock()
 
-ASK = ("I can learn where all your documents are. With your OK I'll read the folders on this computer "
-       "(Documents, Desktop, Downloads, Pictures, OneDrive) and every WhatsApp chat once, remember where each "
-       "file is, and refresh that every 12 hours. After that I can answer instantly. I only read and save files - "
+ASK = ("I can learn where all your documents are. With your OK I'll go through every WhatsApp chat once "
+       "(and your email, if it's connected), remember where each file is, and keep it fresh. After that I can answer instantly. I only read and save files - "
        "I never send, change or delete anything. Shall I start? Say 'yes, scan everything'.")
 
 
@@ -145,19 +144,14 @@ def run_scan(cfg: dict, full: bool = True) -> str:
                 last[0] = time.time()
                 notify(msg)
 
-        if full:
-            notify("Scan started. First your computer's folders...")
-        with docsearch._index_lock:
-            docsearch.reindex(cfg, include_computer=True, include_whatsapp=False,
-                              progress=lambda n: tick(f"Computer: read {n} files so far..."))
         import whatsapp_agent  # WhatsApp is the WhatsApp agent's job: ask it, don't do it here
         if _wa_linked() and full:
-            notify("Now the WhatsApp agent goes through every chat (this part is slower)...")
+            notify("Syncing WhatsApp now, newest chats first...")
         state = whatsapp_agent.scan(cfg, full, tick) if source_ok("whatsapp") else "skipped"
         if state == "busy":
             notify("WhatsApp was busy, so that part will be done next time.")
         elif state == "not linked" and full:
-            notify("WhatsApp isn't linked yet, so I scanned the computer only. Say 'link WhatsApp' to add it.")
+            notify("WhatsApp isn't linked yet. Say 'link WhatsApp' to add it.")
         try:
             import email_agent
             n = email_agent.sync_attachments(cfg, days=180 if full else 14) if source_ok("email") else None
@@ -168,6 +162,10 @@ def run_scan(cfg: dict, full: bool = True) -> str:
                     notify(f"Email: saved and read {n} new attachment(s).")
         except Exception as e:
             print("[scan] email:", e)
+        if docsearch.computer_on(cfg):  # the computer's folders last, and only when the owner turned it on
+            with docsearch._index_lock:
+                docsearch.reindex(cfg, include_computer=True, include_whatsapp=False, include_email=False,
+                                  progress=lambda n: tick(f"Computer: read {n} files so far..."))
         threading.Thread(target=docsearch._vectors, daemon=True).start()
         st = _load()
         st["last_sync"] = time.time()
@@ -199,8 +197,8 @@ def scan_everything(confirm=None):
     st["allowed"] = True
     _save(st)
     return background("scan", lambda: run_scan(CTX.get("cfg", {}), full=True),
-                      "Starting now. I'll read your computer's folders first, then every WhatsApp chat, and tell "
-                      "you how it goes. You can keep using me meanwhile.")
+                      "Starting now: every WhatsApp chat, newest first. I'll tell you how it goes. You can keep "
+                      "using me meanwhile.")
 
 
 @tool("scan_status", "Say what Jarvis has read so far, when it last refreshed and when it refreshes next.", {}, [])
@@ -253,6 +251,14 @@ def scan_add_folder(path):
     if st.get("allowed") is None:
         st["allowed"] = True
     _save(st)
+    try:  # asking for a folder turns reading the computer on
+        import config
+        c = config.load_config()
+        c["scan_computer"] = True
+        config.save_config(c)
+        CTX.get("cfg", {})["scan_computer"] = True
+    except Exception as e:
+        print("[scan] could not turn computer reading on:", e)
     return f"Added {p}. I'll read it in the next refresh (or say 'scan now')."
 
 

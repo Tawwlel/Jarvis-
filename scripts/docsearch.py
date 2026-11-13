@@ -1389,6 +1389,12 @@ _index_lock = __import__("threading").Lock()
 _last_bg = [0.0]
 
 
+def computer_on(cfg: dict) -> bool:
+    """Reading the computer's folders is off unless the owner turns it on: syncing is WhatsApp (and email) first,
+    so it stays quick. Files already learned from the computer stay searchable."""
+    return bool(cfg.get("scan_computer", False))
+
+
 def background_index(cfg: dict, min_gap: float = 0):
     """Builds/refreshes the index quietly so the first search is fast. Safe to call any time.
     min_gap: skip if one ran this recently (searches ask often; a big folder tree should not be re-walked each time)."""
@@ -1397,7 +1403,7 @@ def background_index(cfg: dict, min_gap: float = 0):
     _last_bg[0] = time.time()
     try:
         t0 = time.time()
-        r = reindex(cfg)
+        r = reindex(cfg, include_computer=computer_on(cfg))
         print(f"[docs] index ready: {r['total']} files ({r['added']} new/changed) in {time.time() - t0:.0f}s")
         threading.Thread(target=_vectors, daemon=True).start()
     except Exception as e:

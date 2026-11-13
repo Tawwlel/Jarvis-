@@ -124,6 +124,11 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ApricotDigital.Jarvis")
         except Exception:
             pass
+    try:  # before anything reads data/: undo an old lock that kept Jarvis out of its own folder
+        import data_protect
+        data_protect.repair()
+    except Exception as e:
+        print("[privacy] repair:", e)
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis by Apricot Digital")
     import ui as _ui
@@ -430,6 +435,7 @@ def main():
 
         def started(v):
             cfg["owner_name"], cfg["language"], cfg["onboarded"] = v["owner_name"], v["language"], True
+            cfg["scan_computer"] = bool(v.get("scan")) and bool(v.get("scan_folders"))
             cfg["tone"], cfg["voice"] = v.get("tone", "friendly"), v.get("voice", cfg.get("voice", "amy"))
             cfg.setdefault("slots", {}).setdefault("tts", {})["urdu_voice"] = v.get("urdu_voice", "ur-PK-AsadNeural")
             an = v.get("assistant_name", "Jarvis")

@@ -2,8 +2,8 @@
 
 On Windows Pro/Business the data folder is encrypted with Windows EFS: files are encrypted on disk and only the
 customer's own Windows login can open them; new files Jarvis saves there are encrypted automatically.
-Windows Home has no EFS, so there the folder is locked to the customer's Windows account (other accounts on the
-PC cannot open it) and we say so honestly. Keys and passwords are kept in the Windows Credential Manager."""
+Windows Home has no EFS; there we say so honestly (folder permissions are left alone: changing them locked Jarvis
+out of its own data). Keys and passwords are kept in the Windows Credential Manager."""
 import json
 import os
 import subprocess
@@ -46,13 +46,8 @@ def protect(force: bool = False) -> dict:
         if code == 0 and "error" not in out.lower():
             st = {"method": "efs", "detail": "encrypted with Windows EFS", "ts": time.time()}
         else:
-            # 2) Windows Home: lock the folder to this Windows account (and the system)
-            user = os.environ.get("USERNAME", "")
-            code2, out2 = _run(["icacls", str(DATA), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F",
-                                "/grant:r", "SYSTEM:(OI)(CI)F", "/T", "/C", "/Q"]) if user else (1, "no user")
-            st = {"method": "locked" if code2 == 0 else "none",
-                  "detail": "locked to this Windows account" if code2 == 0 else "could not lock: " + out2[-200:],
-                  "efs_error": out[-200:], "ts": time.time()}
+            # Windows Home has no EFS. We do NOT change folder permissions: that locked Jarvis out of its own data.
+            st = {"method": "none", "detail": "no EFS on this Windows edition", "efs_error": out[-200:], "ts": time.time()}
     try:
         STATE.write_text(json.dumps(st), encoding="utf-8")
     except Exception:
@@ -61,13 +56,41 @@ def protect(force: bool = False) -> dict:
     return st
 
 
+def repair() -> str:
+    """Undo the old 'lock to this account' step if it locked Jarvis out of its own data folder (Permission denied).
+    Called at every start, before anything reads the data folder."""
+    if sys.platform != "win32" or not DATA.exists():
+        return "ok"
+    probe = DATA / ".write_test"
+    try:
+        probe.write_text("1")
+        probe.unlink()
+        if state().get("method") != "locked":
+            return "ok"
+    except Exception:
+        pass
+    user = os.environ.get("USERNAME", "")
+    code, out = _run(["icacls", str(DATA), "/reset", "/T", "/C", "/Q"])
+    if user:
+        _run(["icacls", str(DATA), "/grant", f"{user}:(OI)(CI)F", "/T", "/C", "/Q"])
+    try:
+        STATE.write_text(json.dumps({"method": "none", "detail": "access restored", "ts": time.time()}), encoding="utf-8")
+        probe.write_text("1")
+        probe.unlink()
+        print("[privacy] data folder access restored")
+        return "repaired"
+    except Exception as e:
+        print("[privacy] could not restore access:", e, out[-200:])
+        return f"failed: {e}"
+
+
 def sentence() -> str:
     """What the customer is told."""
     m = state().get("method")
     if m == "efs":
         return ("Everything Jarvis saves stays on this computer, encrypted with Windows, and only your Windows "
                 "login can open it.")
-    if m == "locked":
-        return ("Everything Jarvis saves stays on this computer, locked to your Windows account. (Your Windows "
-                "edition has no built-in folder encryption; turning on BitLocker or Device Encryption protects it fully.)")
+    if m == "none" and sys.platform == "win32":
+        return ("Everything Jarvis saves stays on this computer. (Your Windows edition has no folder encryption; "
+                "turning on Device Encryption or BitLocker in Windows Settings protects it fully.)")
     return "Everything Jarvis saves stays on this computer."

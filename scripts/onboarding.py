@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineE
 from lang import TONE_RULES, tone_rule  # noqa: F401
 from ui import BODY, DISPLAY, MONO, P, URDU_VOICES, _note
 
-PRIVACY = ("Everything Jarvis learns - your files, WhatsApp, email and chats - is saved only on this computer, "
-           "encrypted and locked to your Windows login. Nothing is sent to Apricot Digital. We never see your "
+PRIVACY = ("Everything Jarvis learns - your files, WhatsApp, email and chats - is saved only on this computer "
+           "(encrypted, where your Windows edition supports it). Nothing is sent to Apricot Digital. We never see your "
            "documents, messages or passwords. We respect your privacy.")
 PRIVACY_UR = ("آپ کا سارا ڈیٹا صرف "
               "اسی کمپیوٹر پر محفوظ "
@@ -224,8 +224,8 @@ class OnboardingWizard(QWidget):
         self._h(lay, "Let Jarvis find your documents",
                 "Tick what Jarvis may read. Remember: it stays on this computer, and Jarvis only reads.")
         # computer
-        self.consent = QCheckBox("This computer - read my documents and photos in:")
-        self.consent.setChecked(True)
+        self.consent = QCheckBox("This computer too (optional, slower) - read documents in:")
+        self.consent.setChecked(False)
         lay.addWidget(self.consent)
         import files as _files
         home = _files.HOME
