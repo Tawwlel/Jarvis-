@@ -10,7 +10,7 @@ import math
 import re
 
 from PySide6.QtCore import (QObject, QPointF, QPropertyAnimation, QRectF, Qt, QTime, QTimer, Signal)
-from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap,
+from PySide6.QtGui import (QTextCursor, QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap,
                            QRadialGradient)
 from PySide6.QtWidgets import (QListWidgetItem, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMenu, QPushButton, QSystemTrayIcon, QTabWidget,
@@ -1105,6 +1105,7 @@ class ChatWindow(QWidget):
         self._usage_timer.start(5000)
         self._refresh_usage()
         self.log = QTextBrowser()
+        _o = self.log.document().defaultTextOption(); _o.setTextDirection(Qt.LeftToRight); self.log.document().setDefaultTextOption(_o)  # English reads left to right
         self.log.setOpenExternalLinks(True)
         body = QHBoxLayout()
         body.setContentsMargins(28, 6, 28, 0)
@@ -1241,10 +1242,13 @@ class ChatWindow(QWidget):
         who, color = ("YOU", P["dim"]) if role == "user" else ("JARVIS", P["accent"])
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
         rtl = bool(re.search(r"[\u0600-\u06FF]", text))  # Urdu/Arabic: the text block reads right to left
-        body = (f'<div dir="rtl" style="font-size:15px">{safe}</div>' if rtl else f'<span style="font-size:15px">{safe}</span>')
-        self.log.append(f'<div style="margin:10px 0">'
+        d = "rtl" if rtl else "ltr"  # say the direction outright so English never inherits a right-to-left base
+        self.log.append(f'<div dir="{d}" style="margin:10px 0">'
                         f'<span style="color:{color};font-family:{MONO};font-size:10px">{stamp}&nbsp;&nbsp;{who}</span>'
-                        f'<br>{body}</div>')
+                        f'<br><span style="font-size:15px">{safe}</span></div>')
+        cur = self.log.textCursor(); cur.movePosition(QTextCursor.End)  # appended text inherits the block before it: set its direction outright
+        bf = cur.blockFormat(); bf.setLayoutDirection(Qt.RightToLeft if rtl else Qt.LeftToRight)
+        bf.setAlignment((Qt.AlignRight | Qt.AlignAbsolute) if rtl else (Qt.AlignLeft | Qt.AlignAbsolute)); cur.setBlockFormat(bf)
         self.log.verticalScrollBar().setValue(self.log.verticalScrollBar().maximum())
 
     def _send(self):
