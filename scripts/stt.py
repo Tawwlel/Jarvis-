@@ -108,7 +108,14 @@ class JarvisEars:
                     segments, _ = self._run(self.urdu or self.model, samples, "ur", prompt)
                 else:
                     segments, _ = self._run(self.english, samples, "en", en_prompt)
-        return " ".join(s.text.strip() for s in segments).strip()
+        text = " ".join(s.text.strip() for s in segments).strip()
+        try:
+            from providers import is_junk_transcript
+            if is_junk_transcript(text, prompt or hint or ""):
+                return ""
+        except Exception:
+            pass
+        return text
 
     def warm_up(self):
         """One short silent run per model so the first real request isn't slow."""

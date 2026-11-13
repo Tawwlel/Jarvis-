@@ -197,6 +197,28 @@ def make_llm(cfg: dict, secrets):
 
 
 # ---------------- speech to text ----------------
+# What Whisper "hears" in silence or noise: subtitle credits and sign-offs from its training data.
+_JUNK = re.compile(r"^\W*(thank(s| you)( so much)?( for (watching|listening))?|bye+|uh+|um+|hmm+|"
+                   r"subtitles? by .*|amara\.org.*|like and subscribe.*|please subscribe.*|"
+                   r"شکریہ|ترجمہ.*|سبسکرائب.*)\W*$", re.I)
+
+
+def is_junk_transcript(text: str, prompt: str = "") -> bool:
+    """True when the 'speech' is a known silence hallucination or just the hint words repeated back."""
+    t = (text or "").strip()
+    if not t or _JUNK.match(t):
+        return True
+    words = set(re.findall(r"\w+", t.lower()))
+    pw = set(re.findall(r"\w+", (prompt or "").lower()))
+    return bool(words) and bool(pw) and words <= pw and len(words) >= 2
+
+
+def _too_quiet(audio) -> bool:
+    import numpy as np
+    x = audio.astype("float32") / 32768.0
+    return x.size < 4800 or float(np.sqrt(np.mean(x ** 2))) < 0.004
+
+
 class OpenAIWhisper:
     name = "openai_whisper"
 
@@ -211,8 +233,10 @@ class OpenAIWhisper:
 
         audio = _audio.clean_audio(audio)
         _audio.save_debug_clip(audio, Path(__file__).parent.parent / "data" / "last_voice.wav")
-        base = "Jarvis, WhatsApp, sync, email, invoice, document, Urdu and English."
-        text_prompt = (prompt or "") + " " + base + " " + (self.hint or "")
+        # Never a bare word list: Whisper repeats a list like that back as if the user had said it.
+        text_prompt = ((prompt or "") + " " + (self.hint or "")).strip()
+        if _too_quiet(audio):
+            return ""
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
@@ -227,7 +251,8 @@ class OpenAIWhisper:
                               headers={"Authorization": f"Bearer {self.api_key}"},
                               files={"file": ("speech.wav", wavbytes, "audio/wav")},
                               data={"model": "whisper-1", "temperature": "0", "response_format": "verbose_json",
-                                    "prompt": text_prompt.strip()[:800], **({"language": lang} if lang else {})})
+                                    **({"prompt": text_prompt[:800]} if text_prompt else {}),
+                                    **({"language": lang} if lang else {})})
             r.raise_for_status()
             j = r.json()
             return (j.get("text") or "").strip(), str(j.get("language") or "").lower()
@@ -240,7 +265,7 @@ class OpenAIWhisper:
                 again, _ = call("ur")
                 if again:
                     text = again
-        return text
+        return "" if is_junk_transcript(text, text_prompt) else text
 
 
 def make_stt(cfg: dict, secrets):

@@ -297,6 +297,27 @@ def _link_and_offer() -> str:
     return msg
 
 
+def _known_chats(asked):
+    """Keep only chat names that really exist in the saved WhatsApp files (closest spelling wins)."""
+    try:
+        import difflib
+        import docsearch
+        db = docsearch._db()
+        known = [r[0] for r in db.execute("SELECT DISTINCT chat FROM docs WHERE source='whatsapp' AND chat!=''")]
+        db.close()
+    except Exception:
+        return asked
+    if not known:
+        return asked
+    low = {k.lower(): k for k in known}
+    out = []
+    for a in asked:
+        m = difflib.get_close_matches(a.lower(), list(low), n=1, cutoff=0.8)
+        if m:
+            out.append(low[m[0]])
+    return out or None
+
+
 @tool("whatsapp_sync",
       "Fetch the latest invoices/documents/photos from WhatsApp chats so they can be searched. chats is an "
       "optional comma-separated list of chat names; leave empty for the recent chats. Read-only.",
@@ -307,6 +328,8 @@ def whatsapp_sync(chats=""):
     except ImportError:
         return "WhatsApp support is not installed yet. Run update.bat once, then try again."
     names = [c.strip() for c in chats.split(",") if c.strip()] or None
+    if names:
+        names = _known_chats(names)  # a chat name that does not exist (misheard word) is dropped, not invented
     if not PROFILE.exists():
         return "WhatsApp is not linked yet. Say 'link WhatsApp' first."
     from tools import background
