@@ -13,6 +13,7 @@ echo Setting up free local AI (Ollama, small model)...
 python scripts\setup_local_ai.py
 if errorlevel 1 echo Local AI isn't fully set up yet - Jarvis still works online. Run update again later.
 if not exist config.local.json copy config.example.json config.local.json >nul
+python scripts\shortcuts.py
 echo.
 echo Starting Jarvis...
 start "" pythonw scripts\jarvis_app.py

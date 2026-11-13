@@ -130,8 +130,14 @@ def main():
     _ui.load_fonts()
     _ui.set_theme(load_config().get("ui_theme", "dark"), app)
     from PySide6.QtGui import QIcon
-    if Path(LOGO).exists():
+    ico = ROOT / "assets" / "jarvis.ico"
+    if sys.platform == "win32" and ico.exists():
+        app.setWindowIcon(QIcon(str(ico)))  # all sizes (16-256 px), so the taskbar and Alt+Tab use the logo too
+    elif Path(LOGO).exists():
         app.setWindowIcon(QIcon(LOGO))  # every window (chat, settings, history, phone) wears the logo
+    if sys.platform == "win32":  # "Jarvis" shortcuts on the desktop and Start menu, with the logo
+        import shortcuts
+        threading.Thread(target=lambda: print("[shortcuts]", shortcuts.ensure()), daemon=True).start()
     app.setQuitOnLastWindowClosed(False)
 
     # Only one Jarvis at a time: a second copy would load every model again and run out of memory.
