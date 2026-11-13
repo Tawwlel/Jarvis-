@@ -128,6 +128,7 @@ def _db():
     c.execute("""CREATE TABLE IF NOT EXISTS docs(path TEXT PRIMARY KEY, source TEXT, chat TEXT, name TEXT,
                  ext TEXT, mtime REAL, size INTEGER, text TEXT, doc_type TEXT, amount TEXT, doc_date TEXT,
                  v2 INTEGER, fields TEXT)""")
+    c.execute("CREATE TABLE IF NOT EXISTS prefs(key TEXT, path TEXT, n INTEGER, PRIMARY KEY(key, path))")  # files the owner confirmed for a request
     c.execute("CREATE TABLE IF NOT EXISTS hashes(path TEXT PRIMARY KEY, h TEXT)")  # content fingerprints: same file, different names
     _migrate(c)
     return c
@@ -914,7 +915,8 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
             if not day or not (filters["from"] <= day <= filters["to"]):
                 continue
         head, hay = _hay(chat, name, text, doc_date)
-        item = dict(path=path, source=src, chat=chat, name=name, type=typ, amount=amount, date=doc_date, mtime=mtime)
+        item = dict(path=path, source=src, chat=chat, name=name, type=typ, amount=amount, date=doc_date, mtime=mtime,
+                    _t=(text or "")[:30000])
         heads[id(item)] = head
         cands.append((set(re.findall(r"[\w']+", hay)), head, hay, item))
     # Words in most candidate documents (letterhead, "Bill To", "Total") don't tell documents apart
@@ -966,6 +968,7 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
         # common only if it matches a common word and nothing more specific ("بلال" is Bilal, not "Bill")
         return any(same(w) for w in common) and not any(same(w) for w in df if w not in common)
     key_terms = [t for t in terms if t not in common and not ur_common(t)] or terms
+    liked = _liked(terms)
     scored = []
     for words, head, hay, item in cands:
         if terms:
@@ -978,6 +981,10 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
             full = len(hits) == len(key_terms)
         else:
             score, full = 1.0, True
+        if item["path"] in liked and terms:
+            score += 0.5  # the owner already confirmed this file for a request like this one
+            item["learned"] = True
+        item["score"] = round(score, 2)
         scored.append((full, score, item["mtime"], item))
     exact = sorted([s for s in scored if s[0]], key=lambda s: (-round(s[1], 2), s[3]["date"] or ""), reverse=False)
     exact.sort(key=lambda s: s[3]["date"] or "", reverse=True)
@@ -1024,8 +1031,88 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
         it["also_in"] = [where] if where else []
         seen[k] = it
         items.append(it)
+    shown = items[:limit]
+    ask_terms = [t for t in key_terms if t]
+    for i, it in enumerate(shown):  # show WHY a file matched, so a wrong match is easy to spot
+        if i < 12 and mode in ("specific", "close") and ask_terms:
+            it["why"] = _snippet(it.get("_t", ""), ask_terms)
+        it.pop("_t", None)
+    for it in items[limit:]:
+        it.pop("_t", None)
+    ambiguous = (mode == "specific" and bool(terms) and "order" not in filters and not nums and 2 <= len(items) <= 4
+                 and (items[0].get("score", 0) - items[1].get("score", 0)) < 0.05 and not items[0].get("learned"))
     return {"mode": mode, "type": doc_type, "terms": terms, "filters": filters, "total": len(items),
-            "items": items[:limit]}
+            "items": shown, "ambiguous": ambiguous}
+
+
+_TYPE_WORDS = {"invoice": "invoice", "receipt": "receipt", "quotation": "quot", "quote": "quot", "contract": "contract",
+               "agreement": "agreement", "statement": "statement", "challan": "delivery"}
+
+
+def _label_note(it) -> str:
+    """The file's name says one kind of document, the reader labelled it as another: say so rather than hide it."""
+    name, typ = it["name"].lower(), (it.get("type") or "").lower()
+    if not typ or typ == "register":
+        return ""
+    for w, stem in _TYPE_WORDS.items():
+        if re.search(rf"\b{w}", name) and stem not in typ and not any(st in typ for st in _TYPE_WORDS.values() if st in name):
+            return f" (read as {it['type']}, but the file name says {w})"
+    return ""
+
+
+def _snippet(text: str, terms, width=90) -> str:
+    """The line of the document that contains the searched words (first hit), shortened."""
+    if not text:
+        return ""
+    low = text.lower()
+    best = -1
+    for t in terms:
+        i = low.find(t.lower()) if t else -1
+        if i >= 0 and (best < 0 or i < best):
+            best = i
+    if best < 0:
+        return ""
+    a = low.rfind("\n", 0, best) + 1
+    b = low.find("\n", best)
+    line = re.sub(r"\s+", " ", text[a: b if b > 0 else len(text)]).strip()
+    if len(line) > width:
+        k = best - a
+        start = max(0, min(k - 30, len(line) - width))
+        line = ("..." if start else "") + line[start:start + width] + "..."
+    return line
+
+
+def _pref_key(terms) -> str:
+    return " ".join(sorted({t.lower() for t in terms if len(t) >= 3}))
+
+
+def _liked(terms) -> set:
+    """Paths the owner confirmed for a similar request (same words, or nearly)."""
+    mine = set(_pref_key(terms).split())
+    if not mine:
+        return set()
+    try:
+        db = _db()
+        rows = db.execute("SELECT key, path, n FROM prefs").fetchall()
+        db.close()
+    except Exception:
+        return set()
+    out = set()
+    for key, path, n in rows:
+        theirs = set(key.split())
+        if theirs and len(mine & theirs) / len(mine | theirs) >= 0.6:
+            out.add(path)
+    return out
+
+
+def remember_choice(terms, path: str):
+    key = _pref_key(terms)
+    if not key:
+        return
+    db = _db()
+    db.execute("INSERT INTO prefs VALUES(?,?,1) ON CONFLICT(key,path) DO UPDATE SET n=n+1", (key, path))
+    db.commit()
+    db.close()
 
 
 def _meaning(query, source, k=8):
@@ -1088,11 +1175,18 @@ def _fmt(r: dict, n=12) -> str:
         if len(locs) > 1:
             return f" (found in: {', '.join(locs)})"
         return f" (chat: {it['chat']})" if it["chat"] else (f" (from {it['source']})" if it["source"] in ("email",) else "")
-    lines = [f"{i}. {it['name']}" + where(it)
-             + (f" [{it['type']}]" if it["type"] else "") + (f" total {it['amount']}" if it["amount"] else "")
-             + f" - {_pretty_date(it.get('date'), it['mtime'])}"
-             for i, it in enumerate(r["items"][:n], 1)]
+    lines = []
+    for i, it in enumerate(r["items"][:n], 1):
+        line = (f"{i}. {it['name']}" + where(it) + (f" [{it['type']}]" if it["type"] else "")
+                + (f" total {it['amount']}" if it["amount"] else "") + f" - {_pretty_date(it.get('date'), it['mtime'])}"
+                + _label_note(it) + (" (you picked this one before)" if it.get("learned") else ""))
+        if it.get("why"):
+            line += f"\n   matched: \"{it['why']}\""
+        lines.append(line)
     more = f"\n...and {r['total'] - n} more." if r["total"] > n else ""
+    if r.get("ambiguous"):
+        head += (" Several files fit equally well: if the user wants ONE, read them the matched lines and ask which "
+                 "one they mean, then call doc_choose with their answer.")
     return head + "\n" + "\n".join(lines) + more
 
 
@@ -1217,7 +1311,35 @@ def doc_search(query, source="any"):
             return (f"The WhatsApp chat '{empty}' is linked and has been read, but no documents or photos were saved "
                     f"from it. Say that plainly; do not guess other files.")
     note_phone_files(r.get("items", []))
+    _LAST.update(terms=r.get("terms", []), items=[i["path"] for i in r.get("items", [])[:12]],
+                 names=[i["name"] for i in r.get("items", [])[:12]])
     return _fmt(r)
+
+
+_LAST = {"terms": [], "items": [], "names": []}
+
+
+@tool("doc_choose",
+      "Call this when the user tells you WHICH file they meant after a search (e.g. 'the second one', 'yes that one', "
+      "'no, the other one'). It remembers the choice so the same kind of request finds that file first next time. "
+      "pick = the number from the last list, or part of the file name.",
+      {"pick": {"type": "string"}}, ["pick"])
+def doc_choose(pick):
+    if not _LAST["items"]:
+        return "There is no recent search to attach that choice to."
+    idx = None
+    m = re.search(r"\d+", str(pick))
+    if m and 1 <= int(m.group()) <= len(_LAST["items"]):
+        idx = int(m.group()) - 1
+    else:
+        for i, nm in enumerate(_LAST["names"]):
+            if str(pick).strip().lower() and str(pick).strip().lower() in nm.lower():
+                idx = i
+                break
+    if idx is None:
+        return "I could not tell which file that is. Ask the user for its number in the list."
+    remember_choice(_LAST["terms"], _LAST["items"][idx])
+    return f"Remembered: for requests like this I will show '{_LAST['names'][idx]}' first."
 
 
 def _empty_chat(query: str) -> str:

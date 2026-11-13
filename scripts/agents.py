@@ -25,7 +25,7 @@ from tools import REGISTRY, tool
 AGENTS = {
     "finder": {
         "title": "Finder", "job": "find, list and open documents and photos on the computer and from WhatsApp",
-        "tools": ["doc_search", "doc_find_by_meaning", "doc_collect", "file_find", "file_open", "file_read"],
+        "tools": ["doc_search", "doc_choose", "doc_find_by_meaning", "doc_collect", "file_find", "file_open", "file_read"],
         "prompt": "You are the Finder agent. Your only job: find, list, open or gather documents. Answer from the "
                   "tools' results only. For files that came from WhatsApp use doc_search with source 'whatsapp'."},
     "accounts": {
