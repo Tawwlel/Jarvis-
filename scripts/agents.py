@@ -36,7 +36,7 @@ AGENTS = {
     "whatsapp": {
         "title": "WhatsApp", "job": "link WhatsApp, fetch its files, answer what is written inside WhatsApp "
                                     "documents, import old files from an iPhone backup",
-        "tools": ["whatsapp_link", "whatsapp_sync", "whatsapp_docs_ask", "whatsapp_new_docs",
+        "tools": ["whatsapp_link", "whatsapp_link_cancel", "whatsapp_sync", "whatsapp_docs_ask", "whatsapp_new_docs",
                   "iphone_whatsapp_import"],
         "prompt": "You are the WhatsApp agent. Read-only: you never send, reply or delete. Your only job: the "
                   "WhatsApp connection, fetching its files, and questions about what is written inside them."},

@@ -80,25 +80,70 @@ def _open(page) -> bool:
     return False
 
 
-def link(timeout=300) -> str:
-    """Opens WhatsApp Web visibly so the owner can scan the QR code once."""
+_LINK = {"ctx": None, "cancel": None}
+
+
+def archive_profile() -> str:
+    """Put the current WhatsApp login aside (kept, never deleted) so the next link shows a fresh QR code
+    for a different account. Files already saved from the old account stay searchable."""
+    if not PROFILE.exists():
+        return ""
+    dest = PROFILE.with_name(f"wa_profile_old_{time.strftime('%Y%m%d_%H%M%S')}")
+    try:
+        PROFILE.rename(dest)
+        return dest.name
+    except Exception as e:  # a leftover browser may hold the folder
+        print("[whatsapp] could not set the old login aside:", e)
+        return ""
+
+
+def cancel_link() -> bool:
+    """Close the visible WhatsApp window if a link attempt is open."""
+    ev = _LINK.get("cancel")
+    if ev is not None:
+        ev.set()
+        return True
+    return False
+
+
+def link(timeout=180, fresh=False) -> str:
+    """Opens WhatsApp Web visibly so the owner can scan the QR code once. fresh=True links a different account."""
+    import threading
     from playwright.sync_api import sync_playwright
+    if fresh:
+        archive_profile()
     PROFILE.mkdir(parents=True, exist_ok=True)
     _browser_ready()  # before Playwright starts: it reads the browser location at start-up
-    with sync_playwright() as p:
-        ctx = _launch(p, headless=False)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        if not _open(page):
-            ctx.close()
-            return "I couldn't reach WhatsApp Web. Check the internet connection and try again."
-        try:
-            page.wait_for_selector(SEL["logged_in"], timeout=timeout * 1000)
-            time.sleep(5)  # let the profile save its session
-            ctx.close()
-            return "WhatsApp is linked."
-        except Exception:
-            ctx.close()
-            return "The QR code was not scanned in time. Try again."
+    cancel = threading.Event()
+    _LINK["cancel"] = cancel
+    try:
+        with sync_playwright() as p:
+            ctx = _launch(p, headless=False)
+            try:
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                if not _open(page):
+                    return "I couldn't reach WhatsApp Web. Check the internet connection and try again."
+                end = time.time() + timeout
+                while time.time() < end:
+                    if cancel.is_set():
+                        return "I closed the WhatsApp window. Say 'link WhatsApp' when you want to try again."
+                    try:
+                        if page.is_closed():
+                            return "The WhatsApp window was closed before linking finished."
+                        if page.query_selector(SEL["logged_in"]):
+                            time.sleep(5)  # let the profile save its session
+                            return "WhatsApp is linked."
+                    except Exception:
+                        return "The WhatsApp window was closed before linking finished."
+                    time.sleep(1)
+                return "The QR code was not scanned in time. Try again."
+            finally:
+                try:
+                    ctx.close()  # always: a window left open locks the WhatsApp profile and blocks every later command
+                except Exception:
+                    pass
+    finally:
+        _LINK["cancel"] = None
 
 
 def _chat_names(page, limit, deep=False):
@@ -274,20 +319,43 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
 
 @tool("whatsapp_link",
       "Connect WhatsApp so Jarvis can search files in chats. Opens WhatsApp Web; the owner scans the QR code "
-      "once (WhatsApp > Linked devices). Read-only.", {}, [])
-def whatsapp_link():
+      "once (WhatsApp > Linked devices). Set different_account to true when the owner wants to link another / "
+      "second / different WhatsApp number: the old login is kept aside and a fresh QR code is shown. Read-only.",
+      {"different_account": {"type": "boolean"}}, [])
+def whatsapp_link(different_account=False):
     try:
         import playwright  # noqa: F401
     except ImportError:
         return "WhatsApp support is not installed yet. Run update.bat once, then try again."
     from tools import background
-    return background("whatsapp_link", _link_and_offer,
+    if different_account and "whatsapp_link" in _running_labels():
+        cancel_link()  # an earlier window is still open: close it first so the new code can start
+    return background("whatsapp_link", lambda: _link_and_offer(bool(different_account)),
                       "Opening WhatsApp now. On your phone: WhatsApp > Settings > Linked devices > Link a device, "
                       "then scan the code on the screen. I'll tell you as soon as it's linked.")
 
 
-def _link_and_offer() -> str:
-    msg = link()
+def _running_labels():
+    try:
+        import tools
+        return tools._running
+    except Exception:
+        return set()
+
+
+@tool("whatsapp_link_cancel",
+      "Close the WhatsApp linking window if it is stuck open or the owner wants to stop linking.", {}, [])
+def whatsapp_link_cancel():
+    try:
+        import tools
+        tools._running.discard("whatsapp_link")
+    except Exception:
+        pass
+    return "I closed the WhatsApp window." if cancel_link() else "No WhatsApp window is open."
+
+
+def _link_and_offer(fresh=False) -> str:
+    msg = link(fresh=fresh)
     if msg == "WhatsApp is linked.":
         try:
             import deep_scan
