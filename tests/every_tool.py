@@ -12,7 +12,7 @@ import memory as _m; _m.DB = Path(tempfile.mkdtemp()) / "m.db"; tools.CTX["memor
 tools.active_tools(tools.CTX["cfg"]) if hasattr(tools, "active_tools") else None
 # import every module that registers tools
 for m in ("files","docsearch","deep_scan","whatsapp_reader","whatsapp_agent","email_agent","briefing","backup","setup_guide","agents",
-          "phone_bridge","usage","todos","notes","jcalendar","computer","visual","iphone_backup","invoice_fields","scheduler","sysinfo"):
+          "phone_bridge","usage","licence","todos","notes","jcalendar","computer","visual","iphone_backup","invoice_fields","scheduler","sysinfo"):
     try: __import__(m)
     except Exception as e: print("IMPORT FAIL", m, e)
 DANGEROUS = {"computer_click","computer_type","computer_key","computer_scroll","computer_open","computer_screenshot","whatsapp_link","whatsapp_sync",

@@ -384,6 +384,16 @@ def main():
                 upd.done.emit(updater.whats_new())
         threading.Thread(target=work, daemon=True).start()
 
+    def check_licence():  # tell the portal this Jarvis is alive (version + usage %), and learn if the licence was paused
+        import licence
+        threading.Thread(target=licence.check, daemon=True).start()
+
+    QTimer.singleShot(30000, check_licence)
+    lic_tick = QTimer(app)
+    lic_tick.timeout.connect(check_licence)
+    lic_tick.start(6 * 3600 * 1000)
+    keep["lic_timer"] = lic_tick
+
     if updater.enabled():
         QTimer.singleShot(20000, check_updates)
         tick = QTimer(app)

@@ -93,6 +93,9 @@ def label(p: float) -> str:
 def blocked() -> bool:
     """True when the monthly budget is used up (the online model should not be called)."""
     try:
+        import licence
+        if licence.blocked():  # Apricot Digital paused or ended this licence
+            return True
         return percent() >= 100 and _load()["budget"] > 0
     except Exception:
         return False
