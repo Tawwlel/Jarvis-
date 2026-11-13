@@ -53,9 +53,10 @@ AGENTS = {
     "librarian": {
         "title": "Librarian", "job": "scan the computer and WhatsApp so every file's location is known; refresh "
                                      "every 12 hours",
-        "tools": ["scan_everything", "scan_status", "scan_settings", "scan_add_folder", "scan_mode"],
+        "tools": ["scan_everything", "scan_status", "scan_settings", "scan_add_folder", "scan_mode", "fresh_start"],
         "prompt": "You are the Librarian agent. Your only job: the scan that learns where every file is, its "
-                  "schedule and its status. Never start a scan without the owner's clear yes."},
+                  "schedule and its status, and removing what Jarvis itself saved (fresh_start) when the owner asks "
+                  "for a clean start. Never start a scan or remove anything without the owner's clear yes."},
     "clerk": {
         "title": "Clerk", "job": "change files: write, edit, move, delete (asks first)",
         "tools": ["file_write", "file_edit", "file_move", "file_delete"],
@@ -98,7 +99,7 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
               r"\b(phone|mobile)\b.*\b(connect|link|pair|app|status|connected)\b|فون.*(جوڑ|کنیکٹ|لنک)|"
               r"\b(phone|mobile) (se|par|pe)\b.*\b(jarvis|use|chala)"),
     ("keeper", r"\bback ?up\b|\bbackup\b|\brestore\b|بیک ?اپ"),
-    ("librarian", r"\bscan\b|\bscanning\b|refresh every|سکین|اسکین|\b(fast search|light mode|scan mode)\b"),
+    ("librarian", r"\b(fresh start|start fresh|start over|delete|remove|clear|wipe)\b.*\b(saved|previous|old|all)\b.*\b(whats ?app|pc|data|files?)\b|\bscan\b|\bscanning\b|refresh every|سکین|اسکین|\b(fast search|light mode|scan mode)\b"),
     ("email", r"\be-?mails?\b|\binbox\b|\bdigest\b|\bmails?\b|ای ?میل|میل"),
     ("whatsapp", r"(whats ?app|واٹس ?ایپ).*(لنک|جوڑ|سنک)|\b(fetch|download)\b.*\bwhats ?app"),
     ("clerk", r"\b(delete|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),

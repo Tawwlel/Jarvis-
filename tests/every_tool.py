@@ -16,7 +16,7 @@ for m in ("files","docsearch","deep_scan","whatsapp_reader","whatsapp_agent","em
     try: __import__(m)
     except Exception as e: print("IMPORT FAIL", m, e)
 DANGEROUS = {"computer_click","computer_type","computer_key","computer_scroll","computer_open","computer_screenshot","whatsapp_link","whatsapp_sync",
-             "backup_now","phone_pair","scan_everything","email_digest","iphone_import","phone_forget","computer_run"}
+             "backup_now","phone_pair","scan_everything","email_digest","iphone_import","phone_forget","computer_run","fresh_start"}
 SAMPLE = {"string": "test", "number": 1, "integer": 1, "boolean": False, "array": [], "object": {}}
 bad, ok, skipped = [], 0, []
 for name, ent in sorted(tools.REGISTRY.items()):

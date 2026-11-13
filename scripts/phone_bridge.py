@@ -31,7 +31,7 @@ MAX_AGE = 600            # a request older than 10 minutes is ignored (replay pr
 PHONE_DENY = {"file_open", "file_write", "file_edit", "file_move", "file_delete", "backup_now", "whatsapp_link",
               "whatsapp_sync", "iphone_whatsapp_import", "scan_everything", "scan_add_folder", "scan_settings",
               "update_settings", "learn_invoice_layout", "doc_collect", "email_settings", "add_to_calendar",
-              "show_visual", "phone_pair", "phone_forget"}
+              "show_visual", "phone_pair", "phone_forget", "fresh_start", "whatsapp_link_cancel"}
 
 
 def b64e(b: bytes) -> str:

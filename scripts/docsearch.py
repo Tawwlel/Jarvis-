@@ -1406,3 +1406,61 @@ def doc_collect(query, source="any"):
     except Exception:
         pass
     return f"Copied {len(r['items'])} file(s) into the folder: {dest}"
+
+
+@tool("fresh_start",
+      "Remove what Jarvis itself saved so the owner can start clean: 'whatsapp' = the WhatsApp files Jarvis copied, "
+      "their search index and any old WhatsApp logins kept aside; 'computer' = Jarvis's index of the PC (the owner's "
+      "own files are never touched); 'both' does both. Chats and memory stay. This cannot be undone, so FIRST call "
+      "it without confirm to get the counts, tell the owner exactly what will go, and call again with confirm=true "
+      "only after the owner clearly says yes.",
+      {"scope": {"type": "string"}, "confirm": {"type": "boolean"}}, ["scope"])
+def fresh_start(scope="both", confirm=False):
+    import shutil
+    scope = (scope or "both").lower()
+    if scope not in ("whatsapp", "computer", "both"):
+        return "Say what to remove: whatsapp, computer, or both."
+    srcs = [x for x in ("whatsapp", "computer") if scope in (x, "both")]
+    db = _db()
+    counts = {x: db.execute("SELECT COUNT(*) FROM docs WHERE source=?", (x,)).fetchone()[0] for x in srcs}
+    old_logins = sorted(DATA.glob("wa_profile_old_*")) if "whatsapp" in srcs else []
+    wa_files = sum(1 for f in WA_DIR.rglob("*") if f.is_file()) if "whatsapp" in srcs and WA_DIR.exists() else 0
+    if not confirm:
+        db.close()
+        parts = []
+        if "whatsapp" in srcs:
+            parts.append(f"{counts['whatsapp']} WhatsApp files in the search index, {wa_files} saved WhatsApp copies "
+                         f"and {len(old_logins)} old WhatsApp login(s) kept aside")
+        if "computer" in srcs:
+            parts.append(f"the index of {counts['computer']} PC files (the files themselves stay where they are)")
+        return ("Nothing removed yet. This would remove: " + "; ".join(parts) + ". Your chats, notes and memory stay. "
+                "It cannot be undone. Ask the owner to confirm, then call fresh_start again with confirm=true.")
+    for x in srcs:
+        paths = [r[0] for r in db.execute("SELECT path FROM docs WHERE source=?", (x,))]
+        for i in range(0, len(paths), 500):
+            chunk = paths[i:i + 500]
+            q = ",".join("?" * len(chunk))
+            for tbl in ("docs", "hashes", "prefs", "vecs"):
+                try:
+                    db.execute(f"DELETE FROM {tbl} WHERE path IN ({q})", chunk)
+                except sqlite3.DatabaseError:
+                    pass
+    db.commit()
+    db.close()
+    if "whatsapp" in srcs:
+        shutil.rmtree(WA_DIR, ignore_errors=True)
+        for d in old_logins:
+            shutil.rmtree(d, ignore_errors=True)
+    for fn, key in (("wa_agent.json", "whatsapp"), ("scan.json", "computer")):
+        if key in srcs:
+            try:
+                f = DATA / fn
+                j = json.loads(f.read_text(encoding="utf-8"))
+                j["last_sync"] = 0
+                f.write_text(json.dumps(j), encoding="utf-8")
+            except Exception:
+                pass
+    left = {"whatsapp": "WhatsApp", "computer": "PC"}
+    return ("Done. Removed: " + ", ".join(f"{counts[x]} {left[x]} files from the index" for x in srcs)
+            + (f", the saved WhatsApp copies and {len(old_logins)} old login(s)" if "whatsapp" in srcs else "")
+            + ". Run a sync or scan to start fresh.")
