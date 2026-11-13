@@ -189,7 +189,44 @@ def _ocr(img) -> str:
             latin = pytesseract.image_to_string(img)
         except Exception:
             pass
+    head = _ocr_header(img)
+    if head:
+        have = set(re.findall(r"\w+", latin.lower()))
+        new = [w for w in head.split() if w.lower() not in have]
+        if new:
+            latin = " ".join(new) + "\n" + latin
     return (latin + "\n" + urdu).strip()
+
+
+def _ocr_header(img) -> str:
+    """Bank apps print their name in white on a coloured bar (Meezan, HBL, JazzCash...): readers miss it. Read the
+    top band again as dark text on white."""
+    try:
+        from PIL import ImageOps, ImageStat
+        w, h = img.size
+        if h < 200:
+            return ""
+        band = img.convert("L").crop((0, 0, w, max(60, int(h * 0.16))))
+        if ImageStat.Stat(band).mean[0] >= 140:
+            return ""  # already dark text on a light bar: the first read had it
+        band = ImageOps.autocontrast(ImageOps.invert(band))
+        band = band.resize((band.width * 2, band.height * 2))
+        txt = ""
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            import numpy as np
+            if "eng" not in _rapid:
+                _rapid["eng"] = RapidOCR()
+            res, _ = _rapid["eng"](np.array(band.convert("RGB")))
+            txt = " ".join(r[1] for r in (res or []))
+        except Exception:
+            pass
+        if not txt:
+            import pytesseract
+            txt = pytesseract.image_to_string(band)
+        return " ".join(txt.split())[:200]
+    except Exception:
+        return ""
 
 
 PDF_PAGES, PDF_OCR_PAGES = 60, 6  # text of the first 60 pages; up to 6 scanned pages read as pictures
@@ -979,11 +1016,30 @@ def _search_all(query: str, source: str = "any", doc_type: str = "", limit: int 
 
 _scope = threading.local()
 
+# Words that say what KIND of file, not what is written in it ("meezan bank screenshots", "profile presentation")
+_IMG = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".gif", ".bmp"}
+FORMAT_WORDS = {"screenshot": _IMG, "screenshots": _IMG, "screen shot": _IMG, "pic": _IMG, "pics": _IMG,
+                "tasveer": _IMG, "tasweer": _IMG, "snapshot": _IMG,
+                "presentation": {".pptx", ".ppt"}, "presentations": {".pptx", ".ppt"}, "slides": {".pptx", ".ppt"},
+                "powerpoint": {".pptx", ".ppt"}, "deck": {".pptx", ".ppt"},
+                "excel": {".xlsx", ".xls", ".csv"}, "spreadsheet": {".xlsx", ".xls", ".csv"},
+                "zip": {".zip", ".rar"}}
+# A word in the question that the document may say differently ("payment" -> "Funds Transfer Successful")
+SYNONYMS = {"payment": {"transfer", "paid", "transaction", "raast", "ibft", "deposit", "sent", "remittance"},
+            "payments": {"transfer", "paid", "transaction", "raast", "ibft", "deposit", "sent"},
+            "paid": {"payment", "transfer", "transaction"}, "transfer": {"payment", "transaction", "raast", "ibft"},
+            "salary": {"salaries", "payroll", "wages"}, "rent": {"rental", "tenancy", "lease"},
+            "agreement": {"contract"}, "contract": {"agreement"}}
+
 
 def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
     qtype, terms = parse(query)
     _, filters = parse_filters(" " + _relative_dates(_norm(query)) + " ")
     doc_type = doc_type or qtype
+    exts = set()
+    for w in [t for t in terms if t in FORMAT_WORDS]:
+        exts |= FORMAT_WORDS[w]
+        terms.remove(w)
     db = _db()
     where, args = [], []
     if source not in ("any", ""):
@@ -1012,6 +1068,8 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
             day = (doc_date or "").replace("-", "")
             if not day or not (filters["from"] <= day <= filters["to"]):
                 continue
+        if exts and (ext or "").lower() not in exts:
+            continue
         head, hay = _hay(chat, name, text, doc_date)
         item = dict(path=path, source=src, chat=chat, name=name, type=typ, amount=amount, date=doc_date, mtime=mtime,
                     _t=(text or "")[:30000])
@@ -1028,6 +1086,8 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
             return 1.0 if re.search(rf"(?<!\d){re.escape(t)}(?:\.0+)?(?!\d)", hay) else 0.0
         if t in words:
             return 1.0
+        if t in SYNONYMS and SYNONYMS[t] & words:
+            return 0.9
         if len(t) >= 3 and any(w.startswith(t) for w in words if len(w) - len(t) <= 3):
             return 0.9  # "trad" -> "traders"
         if re.search(r"[\u0600-\u06FF]", t):
