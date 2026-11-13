@@ -847,8 +847,97 @@ def read_pending(terms=(), n: int = 40, seconds: float = 40) -> int:
     return done
 
 
+def _chat_scope(query: str):
+    """If the question names a chat we know ("meezan bank from daddy mobilink"), return (chat, query without the
+    chat's words). The chat is a place to look, not words the files must contain."""
+    try:
+        db = _db()
+        chats = [r[0] for r in db.execute("SELECT DISTINCT chat FROM docs WHERE chat!=''")]
+        db.close()
+    except Exception:
+        return "", query
+    qwords = re.findall(r"[\w']+", _norm(query))
+    best = None
+    for c in chats:
+        cw = [w for w in re.findall(r"[\w']+", _norm(c)) if len(w) >= 2]
+        if not cw:
+            continue
+        used = []
+        for w in cw:
+            m = [q for q in qwords if q == w or (len(q) >= 4 and len(w) >= 4
+                                                  and difflib.SequenceMatcher(None, w, q).ratio() >= 0.85)]
+            if not m:
+                break
+            used += m
+        else:
+            if best is None or len(" ".join(cw)) > best[1]:
+                best = (c, len(" ".join(cw)), set(used))
+    if not best:
+        return "", query
+    rest = " ".join(w for w in re.findall(r"[\w']+", query) if _norm(w) not in best[2])
+    return best[0], rest
+
+
+def _read_chat_pending(chat: str, n: int = 80, seconds: float = 60) -> int:
+    """Read (OCR) the files of ONE chat that so far are known only by name, so what is written inside can be searched."""
+    db = _db()
+    rows = db.execute("SELECT path, name, mtime FROM docs WHERE chat=? AND (text='' OR text IS NULL) AND mtime>0 "
+                      "ORDER BY mtime DESC", (chat,)).fetchall()
+    done, t0 = 0, time.time()
+    for path, name, mtime in rows[:n]:
+        if time.time() - t0 > seconds:
+            break
+        p = Path(path)
+        if not p.exists():
+            continue
+        text = extract_text(p) or " "
+        typ = classify(name, text)
+        db.execute("UPDATE docs SET text=?, doc_type=?, amount=?, doc_date=?, fields=? WHERE path=?",
+                   (text[:30000], typ, "" if typ in NOT_MONEY else find_amount(text),
+                    find_date(name, text, mtime), _fields(text, name, typ), path))
+        done += 1
+    db.commit()
+    db.close()
+    return done
+
+
+def _search_in_chat(chat, rest, source, doc_type, limit):
+    """Look for the content words only inside that chat; if nothing matches, show what the chat does contain."""
+    read = _read_chat_pending(chat)
+    _scope.chat = chat
+    try:
+        r = _search_all(rest, source, doc_type, limit)
+        if r["items"] and r["mode"] not in ("close", "meaning"):
+            r["chat_scope"] = chat
+            return r
+        everything = _search("", source, doc_type, 100000)
+        if not everything["items"] and doc_type:
+            everything = _search("", source, "", 100000)
+        db = _db()
+        unread = db.execute("SELECT COUNT(*) FROM docs WHERE chat=? AND (text='' OR text=' ' OR text IS NULL)",
+                            (chat,)).fetchone()[0]
+        db.close()
+    finally:
+        _scope.chat = ""
+    items = sorted(everything["items"], key=lambda i: i.get("mtime") or 0, reverse=True)
+    for it in items:
+        it.pop("_t", None)
+    return {"mode": "chat_files", "type": doc_type, "terms": parse(rest)[1], "filters": {}, "total": len(items),
+            "items": items[:limit], "ambiguous": False, "chat_scope": chat, "unread": unread, "read_now": read,
+            "wanted": rest.strip()}
+
+
 def search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
     r = _search_all(query, source, doc_type, limit)
+    failed = not r["items"] or r["mode"] in ("close", "meaning")
+    if failed and source in ("any", "whatsapp", "email") and not getattr(_scope, "chat", ""):
+        # nothing matched every word. If the question names a chat ("... from daddy mobilink"), look INSIDE that chat
+        # (reading its unread screenshots) instead of listing look-alikes from everywhere and saying nothing was found
+        chat, rest = _chat_scope(query)
+        if chat:
+            r2 = _search_in_chat(chat, rest, source, doc_type, limit)
+            if r2["items"]:
+                return r2
     if _light() and (not r["items"] or r["mode"] == "close"):
         for _ in range(3):  # read the next likeliest files, then look again
             if not read_pending(parse(query)[1]):
@@ -888,14 +977,23 @@ def _search_all(query: str, source: str = "any", doc_type: str = "", limit: int 
     return r
 
 
+_scope = threading.local()
+
+
 def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 200) -> dict:
     qtype, terms = parse(query)
     _, filters = parse_filters(" " + _relative_dates(_norm(query)) + " ")
     doc_type = doc_type or qtype
     db = _db()
+    where, args = [], []
+    if source not in ("any", ""):
+        where.append("source=?")
+        args.append(source)
+    if getattr(_scope, "chat", ""):
+        where.append("chat=?")  # the question named one chat: only that chat's files
+        args.append(_scope.chat)
     rows = db.execute("SELECT path,source,chat,name,ext,mtime,text,doc_type,amount,doc_date FROM docs"
-                      + ("" if source in ("any", "") else " WHERE source=?"),
-                      () if source in ("any", "") else (source,)).fetchall()
+                      + (" WHERE " + " AND ".join(where) if where else ""), tuple(args)).fetchall()
     fp = dict(db.execute("SELECT path, h FROM hashes").fetchall())
     db.close()
     allowed = TYPE_FAMILY.get(doc_type, {doc_type})
@@ -1167,7 +1265,12 @@ def _fmt(r: dict, n=12) -> str:
             "specific": f"{r['total']} matching file(s).",
             "close": "No exact match. These are the closest - ask the user if one of them is right.",
             "meaning": "No file has those exact words; these match the MEANING - tell the user they're the likely "
-                       "ones and ask if they're right."}[r["mode"]]
+                       "ones and ask if they're right.",
+            "chat_files": (f"I looked inside the chat '{r.get('chat_scope')}' ({r['total']} file(s)). None of them contains "
+                           f"the words '{r.get('wanted')}'" + (f"; {r.get('unread')} file(s) could not be read (blurry or "
+                           "no text)." if r.get("unread") else ".") + " Do NOT say that no files exist: tell the user these "
+                           "are the files in that chat, newest first, and ask which one they mean, or offer to open the "
+                           "latest ones.")}[r["mode"]]
     if r.get("heard_as"):
         head = r["heard_as"] + " Tell the user this in one short phrase. " + head
     def where(it):
