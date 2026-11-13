@@ -146,6 +146,53 @@ def link(timeout=180, fresh=False) -> str:
         _LINK["cancel"] = None
 
 
+def _dismiss_popups(page):
+    """A freshly linked account shows pop-ups (what's new, notifications, chat backup...) that sit over the chat
+    list and make every click time out. Close them."""
+    for _ in range(3):
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        clicked = False
+        for label in ("OK", "Ok", "Got it", "Continue", "Not now", "Close", "Dismiss", "Skip", "Later", "Maybe later"):
+            try:
+                b = page.get_by_role("button", name=label, exact=True)
+                if b.count() and b.first.is_visible():
+                    b.first.click(timeout=1500)
+                    clicked = True
+            except Exception:
+                pass
+        if not clicked:
+            return
+        page.wait_for_timeout(500)
+
+
+def _open_chat(page, name) -> None:
+    """Open one chat: click it in the list; if something is in the way, close pop-ups and use the search box."""
+    try:
+        page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=5000)
+        return
+    except Exception:
+        _dismiss_popups(page)
+    try:
+        page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=4000)
+        return
+    except Exception:
+        pass
+    box = page.locator("div[contenteditable='true'][data-tab='3'], [aria-label='Search input textbox'], "
+                       "div[role='textbox'][aria-label*='Search']").first
+    box.click(timeout=4000)
+    page.keyboard.press("Control+A")
+    page.keyboard.type(name, delay=15)
+    page.wait_for_timeout(1500)
+    page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=5000)
+    try:
+        page.keyboard.press("Escape")  # clear the search so the next chat is found in the full list
+    except Exception:
+        pass
+
+
 def _chat_names(page, limit, deep=False):
     """The chats in the list. deep=True scrolls the whole list (WhatsApp only draws the visible rows)."""
     names = []
@@ -295,14 +342,16 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
             ctx.close()
             return {"error": "not linked"}
         page.wait_for_timeout(3000)
+        _dismiss_popups(page)
         names = chats or _chat_names(page, chat_limit, deep)
+        fails = 0
         deadline = time.time() + 3 * 3600 if deep else None  # a deep scan never runs more than 3 hours
         for i, name in enumerate(names, 1):
             if deadline and time.time() > deadline:
                 result["(stopped after 3 hours)"] = 0
                 break
             try:
-                page.locator("#pane-side").get_by_title(name, exact=True).first.click(timeout=5000)
+                _open_chat(page, name)
                 page.wait_for_timeout(2500)
                 _load_history(page, deep)
                 t_chat = time.time()
@@ -310,7 +359,13 @@ def _sync(chats, per_chat, chat_limit, deep=False, progress=None) -> dict:
                 print(f"[wa] {name}: {result[name]} new file(s) in {time.time() - t_chat:.0f}s")
             except Exception as e:
                 result[name] = f"skipped ({type(e).__name__})"
-                print(f"[wa] {name}: skipped ({type(e).__name__})")
+                print(f"[wa] {name}: skipped ({type(e).__name__}: {str(e).splitlines()[0][:120]})")
+                fails += 1
+                if fails == 1:
+                    try:  # one picture of what was in the way, for diagnosis (overwritten each time)
+                        page.screenshot(path=str(DATA / "wa_debug.png"))
+                    except Exception:
+                        pass
             if progress:
                 progress(i, len(names), name)
         ctx.close()
