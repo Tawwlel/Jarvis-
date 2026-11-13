@@ -1202,11 +1202,16 @@ def doc_search(query, source="any"):
     cfg = CTX.get("cfg", {})
     if source == "whatsapp" and not _wa_ready():
         return "No WhatsApp files are saved on this laptop yet. Link WhatsApp (whatsapp_link) and then run whatsapp_sync, or tell the user to do so."
-    if _index_empty(source):  # nothing read yet: say so instead of making the owner wait
+    if _index_empty("any"):  # nothing read yet: say so instead of making the owner wait
         return _not_ready()
     threading.Thread(target=background_index, args=(cfg, 60), daemon=True).start()  # pick up new files, at most once a minute
     r = search(query, source)
-    if r.get("mode") in ("close", "meaning"):
+    if source != "any" and not r.get("items"):
+        # the source was a guess ("from Apricot Digital" may be a client, not a WhatsApp chat): look everywhere before giving up
+        wider = search(query, "any")
+        if wider.get("items") and wider.get("mode") not in ("close", "meaning"):
+            r = wider
+    if r.get("mode") in ("close", "meaning") and not r.get("items"):
         empty = _empty_chat(query)
         if empty:
             return (f"The WhatsApp chat '{empty}' is linked and has been read, but no documents or photos were saved "
