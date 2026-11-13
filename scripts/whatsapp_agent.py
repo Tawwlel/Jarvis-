@@ -21,6 +21,7 @@ from tools import CTX, tool
 STATE = wa.DATA / "wa_agent.json"
 INTERVAL_MIN = 15
 _sync_lock = threading.Lock()
+_state_lock = threading.Lock()
 _lock = docsearch._index_lock  # one lock for all indexing, so the agent and searches never clash
 
 
@@ -34,6 +35,14 @@ def _load() -> dict:
 def _save(st: dict):
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(st), encoding="utf-8")
+
+
+def mark_synced():
+    """Record that WhatsApp was just checked (shown as "WhatsApp last synced" in the window)."""
+    with _state_lock:  # its own small lock: never wait behind a long index run
+        st = _load()
+        st["last_sync"] = time.time()
+        _save(st)
 
 
 def _wa_rows():
@@ -82,6 +91,8 @@ def scan(cfg: dict, full: bool, tick=None) -> str:
     with _lock:
         docsearch.reindex(cfg, include_computer=False, include_whatsapp=True,
                           progress=(lambda n: tick(f"WhatsApp: read {n} files so far...")) if tick else None)
+    if "busy" not in r and not r.get("error"):
+        mark_synced()
     return "busy" if "busy" in r else "ok"
 
 

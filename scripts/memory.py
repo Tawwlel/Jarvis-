@@ -32,6 +32,21 @@ class Memory:
             """
         )
 
+        self._drop_legacy_usage_lines()
+
+    def _drop_legacy_usage_lines(self):
+        """One time: old usage replies named dollars and the provider; they are removed from the saved chat."""
+        if self.db.execute("SELECT 1 FROM facts WHERE key='_legacy_usage_clean'").fetchone():
+            return
+        try:
+            for rowid, c in self.db.execute("SELECT rowid, content FROM chat_log").fetchall():
+                if "Anthropic Console" in D(c) or "AI budget" in D(c):
+                    self.db.execute("DELETE FROM chat_log WHERE rowid=?", (rowid,))
+            self.db.execute("INSERT OR REPLACE INTO facts VALUES('_legacy_usage_clean', '1')")
+            self.db.commit()
+        except Exception as e:
+            print("[memory] cleanup:", e)
+
     # ---- conversation ----
     def add_message(self, role: str, content: str):
         self.db.execute("INSERT INTO messages VALUES(?,?,?)", (time.time(), role, E(content)))

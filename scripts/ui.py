@@ -260,6 +260,16 @@ URDU_VOICES = [("Asad (male)", "ur-PK-AsadNeural"), ("Uzma (female)", "ur-PK-Uzm
 WHISPER_SIZES = ["base.en", "small", "medium", "large-v3"]
 
 
+def _scrolled(page):
+    """A settings page that scrolls when the screen is short (small laptops), instead of forcing a tall window."""
+    from PySide6.QtWidgets import QScrollArea
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QScrollArea.NoFrame)
+    sa.setWidget(page)
+    return sa
+
+
 def _section(text):
     lab = QLabel(text.upper())
     lab.setObjectName("section")
@@ -512,6 +522,14 @@ class WelcomeWindow(QWidget):
 class SettingsWindow(QWidget):
     saved = Signal(dict)
 
+    def showEvent(self, e):
+        """Never taller than the screen (small laptops): the tabs scroll instead."""
+        from PySide6.QtGui import QGuiApplication
+        scr = QGuiApplication.primaryScreen()
+        if scr:
+            self.resize(self.width(), min(self.height(), int(scr.availableGeometry().height() * 0.92)))
+        super().showEvent(e)
+
     def __init__(self, cfg: dict, logo_path: str, first_run: bool, voices: list, preview,
                  store=None, roles: dict | None = None, profile: dict | None = None):
         super().__init__()
@@ -573,7 +591,7 @@ class SettingsWindow(QWidget):
         f.addRow(self.role_box)
         self.role.currentIndexChanged.connect(self._rebuild_role)
         self._rebuild_role()
-        tabs.addTab(you, "You")
+        tabs.addTab(_scrolled(you), "You")
 
         # ---------------- Assistant ----------------
         asst = QWidget()
@@ -615,7 +633,7 @@ class SettingsWindow(QWidget):
         f.addRow("", brow)
         f.addRow("Shortcut", self.hotkey)
         f.addRow(self.wake)
-        tabs.addTab(asst, "Assistant")
+        tabs.addTab(_scrolled(asst), "Assistant")
 
         # ---------------- Email ----------------
         em = QWidget()
@@ -652,7 +670,7 @@ class SettingsWindow(QWidget):
         f.addRow(_note("Plug the iPhone in, open Apple Devices (or iTunes) and click Back Up Now. Jarvis then imports "
                        "every WhatsApp document and photo from the backup by itself."))
         f.addRow("iPhone backup password", self.ios_pw)
-        tabs.addTab(em, "Email && WhatsApp")  # && shows a real & on a tab
+        tabs.addTab(_scrolled(em), "Email && WhatsApp")  # && shows a real & on a tab
 
         # ---------------- Backup ----------------
         bk = QWidget()
@@ -674,7 +692,7 @@ class SettingsWindow(QWidget):
         f.addRow(_note("Daily backups go to your OneDrive (or Documents) folder 'Jarvis Backups'; the last 7 are kept. Once a "
                        "week a copy is emailed to the backup email, if your email is connected in the Email tab. For a "
                        "full backup including WhatsApp files, right-click the Jarvis icon > Back up Jarvis now."))
-        tabs.addTab(bk, "Backup")
+        tabs.addTab(_scrolled(bk), "Backup")
 
         # ---------------- Keys & models ----------------
         km = QWidget()
@@ -715,7 +733,7 @@ class SettingsWindow(QWidget):
         f.addRow("Provider", self.tts_p)
         f.addRow("ElevenLabs key", self.k_eleven)
         f.addRow("ElevenLabs voice", self.eleven_voice)
-        tabs.addTab(km, "Keys and models")
+        tabs.addTab(_scrolled(km), "Keys and models")
 
         # ---------------- Privacy ----------------
         pr = QWidget()
@@ -735,7 +753,7 @@ class SettingsWindow(QWidget):
         f.addRow("Always hide", self.priv_terms)
         f.addRow("Keep on this PC", self.priv_local)
         f.addRow(_note("Topics in 'Keep on this PC' are never sent online. This needs a local model (Ollama)."))
-        tabs.addTab(pr, "Privacy")
+        tabs.addTab(_scrolled(pr), "Privacy")
 
         # ---------------- Abilities ----------------
         ab = QWidget()
@@ -759,7 +777,7 @@ class SettingsWindow(QWidget):
         f.addRow("My files", self.roots)
         f.addRow(_note("Jarvis can find, read and edit files only in these folders. Deleting always asks, "
                        "and files go to the Recycle Bin."))
-        tabs.addTab(ab, "Abilities")
+        tabs.addTab(_scrolled(ab), "Abilities")
 
         go = QPushButton("Start Jarvis" if first_run else "Save")
         go.clicked.connect(self._save)
@@ -1160,9 +1178,8 @@ class ChatWindow(QWidget):
         try:
             import usage
             sn = usage.snapshot()
-            pct = int(round(sn["percent"]))
-            self.usage.setValue(pct)
-            self.rows["usage"].setText(f"{pct} / 100")
+            self.usage.setValue(max(1, int(round(sn["percent"]))) if sn["percent"] > 0 else 0)
+            self.rows["usage"].setText(f"{usage.label(sn['percent'])} / 100")
         except Exception:
             self.rows["usage"].setText("-")
         try:

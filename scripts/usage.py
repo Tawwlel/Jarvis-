@@ -85,6 +85,11 @@ def percent(d: dict | None = None) -> float:
     return min(100.0, round(100 * d["cost"] / d["budget"], 1)) if d["budget"] > 0 else 0.0
 
 
+def label(p: float) -> str:
+    """'0.4' for small values (so the first requests show up), '12' above 10."""
+    return f"{p:.1f}".rstrip("0").rstrip(".") if 0 < p < 10 else f"{p:.0f}"
+
+
 def blocked() -> bool:
     """True when the monthly budget is used up (the online model should not be called)."""
     try:
@@ -102,7 +107,7 @@ def snapshot() -> dict:
 @tool("usage_status", "Show how much of this month's usage allowance has been used, out of 100.", {}, [])
 def usage_status():
     s = snapshot()
-    return (f"Usage this month: {s['percent']:.0f} out of 100 ({s['calls']} requests). "
+    return (f"Usage this month: {label(s['percent'])} out of 100 ({s['calls']} requests). "
             "It starts again from zero each month.")
 
 
@@ -139,7 +144,7 @@ def redeem(code: str) -> str:
         d["budget"] = amount
         _save(d)
     _warned.clear()
-    return f"Done. Your monthly usage allowance is increased. You've used {percent():.0f} out of 100 so far."
+    return f"Done. Your monthly usage allowance is increased. You've used {label(percent())} out of 100 so far."
 
 
 @tool("usage_redeem_code", "Apply a usage top-up code that Apricot Digital gave the client (starts with JV-).",

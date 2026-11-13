@@ -527,6 +527,11 @@ def _folders(cfg: dict) -> list[Path]:
     return out
 
 
+def _generic_name(name: str) -> bool:
+    """Camera/WhatsApp/scanner file names that say nothing about the document."""
+    return bool(re.match(r"(?i)(doc|img|vid|ptt|scan|image|photo|whatsapp image|whatsapp document)[-_ ]?\d", name))
+
+
 def _fingerprint(p: Path) -> str:
     """Cheap content fingerprint (size + first MB): a PDF forwarded on WhatsApp and also attached to an email is one document."""
     import hashlib
@@ -1008,8 +1013,13 @@ def _search(query: str, source: str = "any", doc_type: str = "", limit: int = 20
                 k = (it["path"],)
         where = (f"email from {it['chat']}" if it["source"] == "email" and it["chat"] else it["chat"] or it["source"])
         if k in seen:
-            if where and where not in seen[k]["also_in"]:
-                seen[k]["also_in"].append(where)
+            keep = seen[k]
+            if _generic_name(keep["name"]) and not _generic_name(it["name"]):  # show the copy that has a real name
+                it["also_in"] = keep["also_in"]
+                items[items.index(keep)] = it
+                seen[k] = keep = it
+            if where and where not in keep["also_in"]:
+                keep["also_in"].append(where)
             continue
         it["also_in"] = [where] if where else []
         seen[k] = it

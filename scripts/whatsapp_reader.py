@@ -309,6 +309,11 @@ def _sync_and_report(names) -> str:
         return "I couldn't reach WhatsApp Web right now. Check the internet connection and try again."
     if r.get("error"):
         return "WhatsApp is not linked yet. Say 'link WhatsApp' first."
+    try:
+        import whatsapp_agent
+        whatsapp_agent.mark_synced()
+    except Exception:
+        pass
     total = sum(v for v in r.values() if isinstance(v, int))
     try:
         import docsearch
