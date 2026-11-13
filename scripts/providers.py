@@ -12,6 +12,7 @@ Messages use one neutral shape so the brain doesn't care which provider is activ
   {"role": "tool", "results": [{"id", "text", "image_b64"?}]}
 """
 import io
+import re
 import json
 import wave
 from dataclasses import dataclass, field
@@ -219,13 +220,27 @@ class OpenAIWhisper:
             wf.setsampwidth(2)
             wf.setframerate(16000)
             wf.writeframes(audio.tobytes())
-        r = requests.post(f"{self.base_url}/audio/transcriptions", timeout=60,
-                          headers={"Authorization": f"Bearer {self.api_key}"},
-                          files={"file": ("speech.wav", buf.getvalue(), "audio/wav")},
-                          data={"model": "whisper-1", "temperature": "0", "prompt": text_prompt.strip()[:800],
-                                    **({"language": self.language} if self.language else {})})
-        r.raise_for_status()
-        return r.json().get("text", "").strip()
+        wavbytes = buf.getvalue()
+
+        def call(lang):
+            r = requests.post(f"{self.base_url}/audio/transcriptions", timeout=60,
+                              headers={"Authorization": f"Bearer {self.api_key}"},
+                              files={"file": ("speech.wav", wavbytes, "audio/wav")},
+                              data={"model": "whisper-1", "temperature": "0", "response_format": "verbose_json",
+                                    "prompt": text_prompt.strip()[:800], **({"language": lang} if lang else {})})
+            r.raise_for_status()
+            j = r.json()
+            return (j.get("text") or "").strip(), str(j.get("language") or "").lower()
+
+        text, detected = call(self.language)
+        if self.language is None:
+            # Pakistani Urdu is often labelled Hindi/Punjabi/etc. Only English and Urdu are supported here:
+            # anything that is not English is written again as Urdu (never Hindi/Devanagari).
+            if detected not in ("english", "en", "") or re.search(r"[\u0900-\u097F]", text):
+                again, _ = call("ur")
+                if again:
+                    text = again
+        return text
 
 
 def make_stt(cfg: dict, secrets):

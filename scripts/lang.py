@@ -13,9 +13,11 @@ def is_urdu(text: str) -> bool:
 def instruction(mode: str) -> str:
     if mode == "ur":
         return ("\nLanguage: always reply in Urdu (Urdu script), in short natural spoken sentences. "
-                "Keep names, numbers and file names as they are. Tool inputs stay in English.")
+                "Keep names, numbers and file names as they are. Tool inputs stay in English. Never use Hindi or Devanagari.")
     if mode == "en":
-        return "\nLanguage: always reply in English."
+        return "\nLanguage: always reply in English. Never use Hindi."
     return ("\nLanguage: reply in the language of the user's LATEST message (not earlier ones): Urdu script for "
             "Urdu script, Roman Urdu for Roman Urdu, English for English. If they mix, follow the main language. Keep names and numbers as they are. "
-            "Tool inputs stay in English letters.")
+            "Tool inputs stay in English letters. "
+            "Only Urdu and English are used: NEVER reply in Hindi or Devanagari script. If the user's message arrives in "
+            "Devanagari (a speech-recognition slip), it is spoken Urdu: understand it as Urdu and reply in Urdu script.")
