@@ -479,4 +479,10 @@ def _sync_and_report(names) -> str:
         docsearch.reindex(CTX.get("cfg", {}), include_computer=False)
     except Exception:
         pass
-    return f"Saved {total} new file(s) from {len(r)} chat(s). You can search them now."
+    skipped = [k for k, v in r.items() if isinstance(v, str) and v.startswith("skipped")]
+    done = len(r) - len(skipped)
+    msg = f"Saved {total} new file(s) from {done} chat(s)."
+    if skipped:
+        msg += (f" {len(skipped)} chat(s) could not be opened ({', '.join(skipped[:5])}"
+                + ("..." if len(skipped) > 5 else "") + "); I'll try them again next sync.")
+    return msg + (" You can search them now." if done else "")
