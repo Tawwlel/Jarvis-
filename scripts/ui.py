@@ -1150,10 +1150,16 @@ class ChatWindow(QWidget):
         theme.setCursor(Qt.PointingHandCursor)
         theme.clicked.connect(self._toggle_theme)
         self.theme_btn = theme
+        clear = QPushButton("CLEAR CHAT")
+        clear.setObjectName("ghost")
+        clear.setCursor(Qt.PointingHandCursor)
+        clear.setToolTip("Clear this screen. Nothing is deleted: all chats stay in History and Jarvis keeps learning from them")
+        clear.clicked.connect(self.clear_view)
         chk = QHBoxLayout()
         chk.setContentsMargins(28, 0, 28, 0)
         chk.addWidget(self.speak)
         chk.addStretch(1)
+        chk.addWidget(clear)
         chk.addWidget(theme)
         lay.addLayout(chk)
         self._style_usage(0)
@@ -1209,12 +1215,39 @@ class ChatWindow(QWidget):
         except Exception as e:
             print("[history]", e)
             return
+        cut = self._cleared_at()
+        old = [m for m in old if m[0] > cut]  # messages before "clear chat" stay in History but not on this screen
         for ts, role, text in old:
             self.add(role, text, ts=ts, dim=True)
         if old:
             self.log.append(f'<div style="color:{P["accent"]};font-family:{MONO};font-size:10px;margin:14px 0">'
                             '&mdash; earlier chats above &middot; use history for all of them &mdash;</div>')
         self.log.verticalScrollBar().setValue(self.log.verticalScrollBar().maximum())
+
+    @staticmethod
+    def _cleared_file():
+        return _Path(__file__).parent.parent / "data" / "chat_view.json"
+
+    def _cleared_at(self) -> float:
+        import json
+        try:
+            return float(json.loads(self._cleared_file().read_text(encoding="utf-8")).get("cleared_at", 0))
+        except Exception:
+            return 0.0
+
+    def clear_view(self):
+        """Empty the chat screen only. The messages stay in the saved history (and in what Jarvis remembers)."""
+        import json
+        import time
+        try:
+            f = self._cleared_file()
+            f.parent.mkdir(exist_ok=True)
+            f.write_text(json.dumps({"cleared_at": time.time()}), encoding="utf-8")
+        except Exception as e:
+            print("[history]", e)
+        self.log.clear()
+        self.log.append(f'<div style="color:{P["accent"]};font-family:{MONO};font-size:10px;margin:14px 0">'
+                        '&mdash; screen cleared &middot; nothing deleted: find every chat under HISTORY &mdash;</div>')
 
     def show_history(self):
         if not self.memory:
