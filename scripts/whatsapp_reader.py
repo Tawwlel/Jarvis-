@@ -9,6 +9,7 @@ data/whatsapp/<chat name>/.
 
 Selectors live in SEL so they are easy to patch if WhatsApp changes its page.
 """
+import json
 import re
 import time
 from pathlib import Path
@@ -151,6 +152,11 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
     done = set(seen_file.read_text().split()) if seen_file.exists() else set()
     seen |= done
     got, fails = 0, 0
+    tries_file = out / ".tries"
+    try:
+        tries = json.loads(tries_file.read_text()) if tries_file.exists() else {}
+    except Exception:
+        tries = {}
     rows = page.query_selector_all(SEL["messages"])
     for m in reversed(rows):  # newest first
         if got >= max_files or fails >= 6:  # 6 failures in a row: expired media, move on
@@ -169,22 +175,18 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
         if is_doc and (out / label).exists():
             done.add(mid)
             continue
+        ok = False
         try:
             m.scroll_into_view_if_needed()
-            with page.expect_download(timeout=10000) as dl:
-                btn = m.query_selector("[data-icon='audio-download'], [data-icon='download'], [data-icon^='document']")
-                (btn or title or m).click()
-            d = dl.value
-            name = _safe_file(d.suggested_filename or label or f"photo_{int(time.time())}.jpg")
-            d.save_as(str(out / name))
-            got += 1
-            fails = 0
-            done.add(mid)
-            if got % 10 == 0:  # remember progress, so an interrupted scan does not start this chat again
-                seen_file.write_text("\n".join(sorted(done)))
-        except Exception:
-            fails += 1
-            if is_img:  # photos: open the viewer and save it
+            if is_doc:  # documents download straight from the message
+                with page.expect_download(timeout=10000) as dl:
+                    btn = m.query_selector("[data-icon='audio-download'], [data-icon='download'], [data-icon^='document']")
+                    (btn or title or m).click()
+                d = dl.value
+                name = _safe_file(d.suggested_filename or label or f"photo_{int(time.time())}.jpg")
+                d.save_as(str(out / name))
+                ok = True
+            else:  # photos: open the viewer and save it from there (no pointless wait for a direct download)
                 try:
                     m.query_selector("img[src^='blob:']").click()
                     page.wait_for_timeout(800)
@@ -192,13 +194,24 @@ def _download_chat(page, chat: str, max_files: int, seen: set) -> int:
                         page.click("[data-icon='download'], [aria-label='Download']")
                     d = dl.value
                     d.save_as(str(out / _safe_file(d.suggested_filename or f"photo_{int(time.time())}.jpg")))
-                    got += 1
-                    done.add(mid)
-                except Exception:
-                    pass
+                    ok = True
                 finally:
                     page.keyboard.press("Escape")
+        except Exception:
+            ok = False
+        if ok:
+            got += 1
+            fails = 0
+            done.add(mid)
+            if got % 10 == 0:  # remember progress, so an interrupted scan does not start this chat again
+                seen_file.write_text("\n".join(sorted(done)))
+        else:
+            fails += 1
+            tries[mid] = tries.get(mid, 0) + 1
+            if tries[mid] >= 2:  # failed twice (expired media): never spend minutes on it again
+                done.add(mid)
     seen_file.write_text("\n".join(sorted(done)))
+    tries_file.write_text(json.dumps(tries))
     return got
 
 

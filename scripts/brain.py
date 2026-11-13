@@ -298,7 +298,7 @@ class Brain:
             system = base + agents.prompt_for(agent, self.tools)
             self._last_agent = (agent, time.time())
             self._prune_images(messages)
-            res = self.llm.complete(model, red.redact(system), self._redacted(messages, red), schemas, 500)
+            res = self.llm.complete(model, red.redact(system), self._redacted(messages, red), schemas, 1500)
             text = red.restore(res.text)
             if not res.tool_calls:
                 print(f"[agent] {agent}")
@@ -322,7 +322,9 @@ class Brain:
             messages.append({"role": "assistant", "text": text, "tool_calls": calls})
             results = []
             for c in calls:
+                _t0 = time.time()
                 r = tools.run_tool(c["name"], c["input"])
+                print(f"[timing] tool {c['name']} {time.time() - _t0:.1f}s")
                 if isinstance(r, dict):
                     results.append({"id": c["id"], "text": r.get("note", "Screenshot"), "image_b64": r["image_b64"]})
                 else:

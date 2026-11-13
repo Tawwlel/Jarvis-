@@ -63,13 +63,19 @@ class AnthropicLLM:
         return out
 
     def complete(self, model, system, messages, tools=None, max_tokens=500) -> LLMResult:
+        import time as _t
         kw = {"tools": tools} if tools else {}
+        t0 = _t.time()
         resp = self.client.messages.create(model=model, max_tokens=max_tokens, system=system,
                                            messages=self.convert(messages), **kw)
         text = "".join(b.text for b in resp.content if b.type == "text")
         calls = [{"id": b.id, "name": b.name, "input": b.input}
                  for b in resp.content if b.type == "tool_use"]
         _count(model, resp)
+        u = getattr(resp, "usage", None)
+        print(f"[timing] llm {_t.time() - t0:.1f}s {model} in={getattr(u, 'input_tokens', '?')} out={getattr(u, 'output_tokens', '?')}")
+        if getattr(resp, "stop_reason", "") == "max_tokens" and not calls:
+            text = text.rstrip() + "\n...(there is more: ask me to continue)"  # never end an answer mid-sentence silently
         return LLMResult(text, calls)
 
 
