@@ -72,6 +72,26 @@ NEEDS_ONLINE = ("I need my online model for that, because it means using your fi
 TRIVIAL = re.compile(r"^(hi|hello|hey|thanks|thank you|ok|okay|bye|good (morning|night))\b", re.I)
 
 
+def _llm_error_message(e) -> str:
+    """Say what actually went wrong instead of one vague line (a wrong key, no credit and no internet need different fixes)."""
+    t = f"{type(e).__name__} {e}".lower()
+    code = getattr(e, "status_code", None)
+    if code in (401, 403) or "credential" in t or "authentication" in t or "invalid x-api-key" in t or "permission" in t:
+        return "My language model key was refused. Check the Anthropic key in Settings, under Keys and models."
+    if "credit balance" in t or "billing" in t or "spend limit" in t or "usage limit" in t:
+        return ("The Anthropic account has no credit left or hit its spend limit. Add credit or raise the limit "
+                "at console.anthropic.com, then ask me again.")
+    if code == 429 or "rate" in t and "limit" in t:
+        return "The language model is busy right now (rate limit). Please ask again in a few seconds."
+    if code in (500, 502, 503, 529) or "overloaded" in t:
+        return "The language model service is overloaded for a moment. Please ask again in a few seconds."
+    if "connection" in t or "timeout" in t or "timed out" in t or "name resolution" in t or "ssl" in t:
+        return "I couldn't reach the internet. Check the connection and ask me again."
+    if code == 404 or "not_found" in t or "model" in t and "not" in t:
+        return "The language model name in Settings is not valid. Check Fast model and Strong model under Keys and models."
+    return "I couldn't get an answer from the language model. Ask me again; if it keeps happening, check the key and internet."
+
+
 class Brain:
     def __init__(self, cfg: dict, secrets=None):
         self.cfg = cfg
@@ -251,8 +271,8 @@ class Brain:
                     try:
                         reply = self._cloud(model, system, red, agent)
                     except Exception as e:
-                        print("[llm]", e)
-                        reply = "I couldn't reach the language model. Check your internet connection and API key."
+                        print("[llm]", repr(e)[:400])
+                        reply = _llm_error_message(e)
         self.mem.add_message("assistant", reply)
         return reply
 

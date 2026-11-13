@@ -312,6 +312,15 @@ class ElevenLabsVoice:
         return path
 
 
+def _urdu_speakable(text: str) -> str:
+    """Strip what the Urdu voice cannot say: quoted file names, extensions, long Latin/number codes, symbols."""
+    t = re.sub(r'["“”\'«»][^"“”\'«»]{0,120}["“”\'«»]', " ", text)
+    t = re.sub(r"\S+\.(jpe?g|png|pdf|docx?|xlsx?|csv|txt|mp4|wav|opus|heic)\b", " ", t, flags=re.I)
+    t = re.sub(r"[A-Za-z0-9_\-:/.+()\[\]#*@]{9,}", " ", t)
+    t = re.sub(r"[*_#`~|<>{}\[\]]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
 class EdgeVoice:
     """Urdu (and other) neural voices through Microsoft Edge's free text-to-speech. Needs internet."""
     name = "edge"
@@ -333,7 +342,18 @@ class EdgeVoice:
                     data += chunk["data"]
             return data
 
-        mp3 = asyncio.run(run())
+        mp3 = b""
+        for attempt in (text, _urdu_speakable(text)):  # second try: file names and symbols removed (they make the voice return nothing)
+            if not attempt.strip():
+                continue
+            text = attempt
+            try:
+                mp3 = asyncio.run(run())
+            except Exception as e:  # "No audio was received" and network hiccups
+                print("[urdu voice] retry:", e)
+                mp3 = b""
+            if mp3:
+                break
         if not mp3:
             raise RuntimeError("no audio from the Urdu voice")
         pcm = miniaudio.decode(mp3, output_format=miniaudio.SampleFormat.SIGNED16, nchannels=1, sample_rate=24000)

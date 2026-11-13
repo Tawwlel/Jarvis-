@@ -58,7 +58,7 @@ class WakeListener(threading.Thread):
 
     def run(self):
         q = self.mic.subscribe()
-        seg = Segmenter(end_silence=0.6, max_seconds=8.0)
+        seg = Segmenter(end_silence=0.6, max_seconds=8.0, floor=0.012)  # the wake listener stays strict: room noise must not trigger it
         while self.running:
             try:
                 frame = q.get(timeout=0.5)
