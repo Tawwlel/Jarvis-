@@ -91,7 +91,7 @@ FORMAL = ["employment contract", "nda", "mou", "terms of service", "vendor contr
 NOT_MONEY = set(FORMAL) - {"agreement", "vendor contract"}  # no invoice-style total to read from these
 NOT_DOCS = re.compile(r"curriculum vitae|\bresume\b|\bcv\b|price list|meeting notes|\bagenda\b", re.I)
 STOP = set("""a an the of for from to by with in on at and or me my find show get give all every any
-file files document documents doc docs pdf photo photos picture pictures image images client clients
+file files document documents doc docs letter letters pdf photo photos picture pictures image images client clients
 please can you jarvis look up lookup search send those these that this is are was were i want need
 details detail items item whatsapp computer laptop pc folder compile compiled specific named called
 company's customer customers rs pkr rupees amount total worth of
@@ -134,7 +134,7 @@ def _db():
     return c
 
 
-INDEX_REV = 4  # bump when classify/find_date/junk rules change: stored rows are re-labelled from their saved text
+INDEX_REV = 5  # bump when classify/find_date/junk rules change: stored rows are re-labelled from their saved text
 
 
 def _migrate(c):
@@ -456,11 +456,27 @@ def _has(words, hay):
 DOC_NO = re.compile(r"\b(?:inv|qt|quo|po|pinv|rcpt|rec|dc|cn|so|bill)[-#/ ]?\d{2,}", re.I)
 
 
+_GLUED = [(a, b) for a, b in (("payment", "receipt"), ("sales", "invoice"), ("tax", "invoice"), ("purchase", "invoice"),
+                               ("purchase", "order"), ("delivery", "challan"), ("credit", "note"), ("debit", "note"),
+                               ("sales", "order"), ("proforma", "invoice"), ("bank", "statement"), ("funds", "transfer"),
+                               ("grand", "total"), ("bill", "to"), ("payment", "no"), ("invoice", "no"),
+                               ("quotation", "no"), ("sales", "no"), ("receipt", "no"))]
+_GLUED_RE = [re.compile(rf"(?i)(?<![a-z])({a})({b})(?![a-z])") for a, b in _GLUED]
+
+
+def _unglue(text: str) -> str:
+    """Photo readers often drop the space in headings ("PAYMENTRECEIPT", "SALESINVOICE"): put it back."""
+    for rx in _GLUED_RE:
+        text = rx.sub(r"\1 \2", text)
+    return text
+
+
 def classify(name: str, text: str) -> str:
     """Type from the file name first, then the document's heading (first few lines) - never from
     anywhere in the text, so a CV that mentions 'sales invoices' is not a sales invoice.
     Spreadsheets/lists holding many document numbers are 'register' (an invoice list, not an invoice)."""
     fname = _norm(Path(name).stem)
+    text = _unglue(text)
     head = " ".join(text.lower().split()[:40])
     if re.match(r"screenshot|screen shot|snip", fname):
         return "screenshot"
@@ -791,7 +807,7 @@ TYPE_FAMILY = {"invoice": {"invoice", "sales invoice", "purchase invoice"}}
 
 def _hay(chat, name, text, doc_date):
     head = _norm(f"{chat} {name}")
-    body = re.sub(r"(?<=\d),(?=\d{3})", "", _norm(text).replace("&", " and "))
+    body = re.sub(r"(?<=\d),(?=\d{3})", "", _norm(_unglue(text)).replace("&", " and "))
     return head, head + " " + body + " " + _ocr_numbers(text[:4000]) + _date_words(doc_date)
 
 
