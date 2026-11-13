@@ -320,7 +320,8 @@ _busy = __import__("threading").Lock()
 def sync(chats=None, per_chat=40, chat_limit=15, deep=False, progress=None) -> dict:
     """Saves documents/photos of the given chats (or the most recent ones) into data/whatsapp.
     deep=True goes through EVERY chat and loads each chat's whole available history."""
-    if not _busy.acquire(blocking=False):  # one browser per profile at a time
+    # one browser per profile at a time; the full scan waits its turn instead of giving up
+    if not _busy.acquire(timeout=900 if deep else 0.1):
         return {"busy": 0}
     try:
         if deep:
@@ -412,6 +413,14 @@ def whatsapp_link(different_account=False):
     except ImportError:
         return "WhatsApp support is not installed yet. Run update.bat once, then try again."
     from tools import background
+    said = str(CTX.get("last_user_text", "")).lower()
+    if different_account and not re.search(r"different|another|other|second|new (number|account|whats)|doosr|dusr|"
+                                           r"dosr|naya|نیا|دوسر|alag|change", said):
+        different_account = False  # only the owner's own words can set aside the current login, never a guess
+    if not different_account and PROFILE.exists() and "whatsapp_link" not in _running_labels() and _linked_recently():
+        return "WhatsApp is already linked. Say 'sync WhatsApp' to fetch new files."
+    if "whatsapp_link" in _running_labels() and not different_account:
+        return "The WhatsApp window is already open: scan the code shown there. I'll tell you when it's linked."
     if different_account and "whatsapp_link" in _running_labels():
         cancel_link()  # an earlier window is still open: close it first so the new code can start
     return background("whatsapp_link", lambda: _link_and_offer(bool(different_account)),
@@ -438,12 +447,31 @@ def whatsapp_link_cancel():
     return "I closed the WhatsApp window." if cancel_link() else "No WhatsApp window is open."
 
 
+def _linked_recently(hours=12) -> bool:
+    try:
+        return time.time() - float(json.loads((DATA / "wa_link.json").read_text()).get("ts", 0)) < hours * 3600
+    except Exception:
+        return False
+
+
 def _link_and_offer(fresh=False) -> str:
     msg = link(fresh=fresh)
     if msg == "WhatsApp is linked.":
         try:
+            (DATA / "wa_link.json").write_text(json.dumps({"ts": time.time()}))
+        except Exception:
+            pass
+        try:  # the scan offer only once ever, never with every link
             import deep_scan
-            msg += " " + deep_scan.offer()
+            st = deep_scan._load()
+            if st.get("allowed") is None and not st.get("offered"):
+                st["offered"] = True
+                deep_scan._save(st)
+                msg += " " + deep_scan.offer()
+            else:
+                msg += " I'll sync your chats now."
+                from tools import background
+                threading.Timer(2, lambda: background("whatsapp_sync", lambda: _sync_and_report(None), "")).start()
         except Exception as e:
             print("[scan] offer:", e)
     return msg
@@ -510,6 +538,8 @@ def _sync_and_report(names) -> str:
         pass
     skipped = [k for k, v in r.items() if isinstance(v, str) and v.startswith("skipped")]
     done = len(r) - len(skipped)
+    if not total and not skipped:
+        return "WhatsApp is up to date: no new files."
     msg = f"Saved {total} new file(s) from {done} chat(s)."
     if skipped:
         msg += (f" {len(skipped)} chat(s) could not be opened ({', '.join(skipped[:5])}"

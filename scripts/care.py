@@ -104,11 +104,9 @@ def backend_doctor(cfg: dict, fix=True) -> dict:
         age = time.time() - float(wa.get("last_sync", 0) or 0)
         if age > 24 * 3600:
             found.append("WhatsApp not synced for over a day")
-            if fix:
+            if False:  # the WhatsApp agent's own loop syncs; a second starter here opened the browser twice
                 try:
-                    import tools
-                    threading.Thread(target=lambda: tools.run_tool("whatsapp_sync", {}), daemon=True).start()
-                    fixed.append("started a WhatsApp sync")
+                    pass
                 except Exception:
                     pass
     else:

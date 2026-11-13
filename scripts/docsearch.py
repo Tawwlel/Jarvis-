@@ -1347,6 +1347,11 @@ def _fmt(r: dict, n=12) -> str:
                            "no text)." if r.get("unread") else ".") + " Do NOT say that no files exist: tell the user these "
                            "are the files in that chat, newest first, and ask which one they mean, or offer to open the "
                            "latest ones.")}[r["mode"]]
+    if r["mode"] in ("close", "meaning"):  # nothing matched: say so plainly; look-alikes only if the user asks
+        _LAST.update(items=[i["path"] for i in r["items"][:12]], names=[i["name"] for i in r["items"][:12]])
+        return (f"No file matches exactly. Tell the user plainly that nothing was found for that. Do NOT list or "
+                f"describe other files. ({len(r['items'])} look-alike file(s) exist: only if the user asks to see "
+                f"them, call doc_find_by_meaning.)")
     if r.get("heard_as"):
         head = r["heard_as"] + " Tell the user this in one short phrase. " + head
     def where(it):

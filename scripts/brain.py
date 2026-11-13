@@ -232,6 +232,7 @@ class Brain:
         """phone=True: the question came from the owner's phone - read-only tools only (see phone_bridge.PHONE_DENY)."""
         self.deny = set(__import__("phone_bridge").PHONE_DENY) if phone else set()
         self.mem.add_message("user", text)
+        tools.CTX["last_user_text"] = text  # tools can check what the owner actually said this time
         quick = self._quick(text)
         if quick:
             self.mem.add_message("assistant", quick)

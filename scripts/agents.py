@@ -25,7 +25,7 @@ from tools import REGISTRY, tool
 AGENTS = {
     "finder": {
         "title": "Finder", "job": "find, list and open documents and photos on the computer and from WhatsApp",
-        "tools": ["doc_search", "doc_choose", "doc_find_by_meaning", "doc_collect", "file_find", "file_open", "file_read"],
+        "tools": ["doc_search", "doc_choose", "doc_find_by_meaning", "doc_collect", "file_open", "file_read"],
         "prompt": "You are the Finder agent. Your only job: find, list, open or gather documents. Answer from the "
                   "tools' results only. For files that came from WhatsApp use doc_search with source 'whatsapp'."},
     "accounts": {
@@ -86,11 +86,15 @@ AGENTS = {
         "prompt": ""},
 }
 
-SHARED = ("To the owner you are simply Jarvis: never mention agents, never say 'that is not my job', and never "
-          "comment on or correct earlier replies in this conversation - they came from Jarvis's other agents and "
-          "are true. If the request is outside your tools, call ask_agent to pass it to the right agent.")
+SHARED = ("To the owner you are simply Jarvis: never mention agents, bots, the librarian or other internal parts, and "
+          "never say 'that is not my job'. Answer only the LATEST message, once: do not repeat earlier answers. "
+          "Earlier replies may have been wrong; trust only what your tools return now. If the request is outside "
+          "your tools, call ask_agent to pass it to the right agent instead of explaining what you can't do.")
 
 RULES = [  # first match wins; anything unmatched goes to the coordinator, who can hand it over
+    ("librarian", r"^(?!.*\b(back ?ups?|file named|folder named)\b)(?:.*\b(fresh start|start fresh|start over|clean start)\b|"
+                  r".*\b(delete|remove|clear|wipe|erase)\b.*\b(saved|previous|old|all)\b.*\b(data|whats ?app|pc|everything|index)\b|"
+                  r".*(ڈیلیٹ|مٹا|ہٹا|صاف).*(ڈیٹا|فائل)|.*(ڈیٹا|فائل).*(ڈیلیٹ|مٹا|ہٹا|صاف)|.*\b(delete|hata|mita|saaf)\b.*\bdata\b)"),
     ("jarvis", r"\bagents?\b|\bbots?\b|what can you do|ایجنٹ"),
     ("guide", r"\b(health|care team|errors?|issues?|my plan|usage|budget|allowance|licen[cs]e|api cost|cost so far)\b|how much (have i|did i) (used|spent)|\b(set ?up|setup)\b|\bhow (do|can|to)\b.*\b(connect|link|add|install|use)\b|kaise (connect|link|"
               r"set|laga|kar)|settings?\b|سیٹ ?اپ|سیٹپ|کیسے (کنیکٹ|لنک)"),
@@ -99,10 +103,10 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
               r"\b(phone|mobile)\b.*\b(connect|link|pair|app|status|connected)\b|فون.*(جوڑ|کنیکٹ|لنک)|"
               r"\b(phone|mobile) (se|par|pe)\b.*\b(jarvis|use|chala)"),
     ("keeper", r"\bback ?up\b|\bbackup\b|\brestore\b|بیک ?اپ"),
-    ("librarian", r"\b(fresh start|start fresh|start over|delete|remove|clear|wipe)\b.*\b(saved|previous|old|all)\b.*\b(whats ?app|pc|data|files?)\b|\bscan\b|\bscanning\b|refresh every|سکین|اسکین|\b(fast search|light mode|scan mode)\b"),
+    ("librarian", r"\bscan\b|\bscanning\b|refresh every|سکین|اسکین|\b(fast search|light mode|scan mode)\b"),
     ("email", r"\be-?mails?\b|\binbox\b|\bdigest\b|\bmails?\b|ای ?میل|میل"),
     ("whatsapp", r"(whats ?app|واٹس ?ایپ).*(لنک|جوڑ|سنک)|\b(fetch|download)\b.*\bwhats ?app"),
-    ("clerk", r"\b(delete|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),
+    ("clerk", r"\b(delete|remove|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),
     ("whatsapp", r"(whats ?app|واٹس ?ایپ).*\b(link|sync|check|import|new|naye|fetch|connect|linked|how much|kitn\w*|"
                  r"paid?|says?|written|likha)\b|\b(link|sync|check|import|connect|how much|kitn\w*|paid?|written|likha)\b"
                  r".*(whats ?app|واٹس ?ایپ)|\b(new|naye|came|arrived|aaye?)\b.*(whats ?app|واٹس ?ایپ)|\biphone\b"),
@@ -110,7 +114,7 @@ RULES = [  # first match wins; anything unmatched goes to the coordinator, who c
                  r"\bdetails of\b|کل رقم|ٹوٹل"),
     ("organizer", r"\bremind\w*\b|yaad dila|\bto-?dos?\b|\btasks?\b|\bnotes?\b|\bcalendar\b|\bmeetings?\b|"
                   r"\bschedule\b|\bappointments?\b|\bagenda\b|یاد دہانی|میٹنگ|نوٹ"),
-    ("clerk", r"\b(delete|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),
+    ("clerk", r"\b(delete|remove|rename|move|copy|edit|write|create)\b.*\b(file|folder|document|pdf)\b"),
     ("finder", r"\b(find|search|look ?(up|for)|show|open|list|get|where|collect|gather|latest|oldest|dikha\w*|"
                r"nikal\w*|dh?oond\w*|dhund\w*|talash|khol\w*|kahan)\b|\b(invoices?|quotations?|quotes?|receipts?|"
                r"challans?|bills?|agreements?|contracts?|documents?|files?|photos?|pdfs?|raseed|parchi)\b|"
