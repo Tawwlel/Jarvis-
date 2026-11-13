@@ -201,9 +201,17 @@ class OpenAIWhisper:
 
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", language: str | None = None):
         self.api_key, self.base_url, self.language = api_key, base_url.rstrip("/"), language
+        self.hint = None  # words Jarvis expects to hear (document types, the owner's customer names)
 
-    def transcribe_array(self, audio) -> str:
+    def transcribe_array(self, audio, prompt: str | None = None) -> str:
         import requests
+        import audio as _audio
+        from pathlib import Path
+
+        audio = _audio.clean_audio(audio)
+        _audio.save_debug_clip(audio, Path(__file__).parent.parent / "data" / "last_voice.wav")
+        base = "Jarvis, WhatsApp, sync, email, invoice, document, Urdu and English."
+        text_prompt = (prompt or "") + " " + base + " " + (self.hint or "")
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
@@ -214,7 +222,8 @@ class OpenAIWhisper:
         r = requests.post(f"{self.base_url}/audio/transcriptions", timeout=60,
                           headers={"Authorization": f"Bearer {self.api_key}"},
                           files={"file": ("speech.wav", buf.getvalue(), "audio/wav")},
-                          data={"model": "whisper-1", **({"language": self.language} if self.language else {})})
+                          data={"model": "whisper-1", "temperature": "0", "prompt": text_prompt.strip()[:800],
+                                    **({"language": self.language} if self.language else {})})
         r.raise_for_status()
         return r.json().get("text", "").strip()
 

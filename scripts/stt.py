@@ -85,6 +85,12 @@ class JarvisEars:
         """Transcribe raw 16 kHz int16 samples straight from the microphone."""
         import numpy as np
 
+        try:
+            import audio as _audio
+            from pathlib import Path
+            _audio.save_debug_clip(audio, Path(__file__).parent.parent / "data" / "last_voice.wav")
+        except Exception:
+            pass
         samples = self._clean(audio.astype(np.float32) / 32768.0)
         hint = getattr(self, "hint", None)
         en_prompt = prompt or hint  # helps Whisper hear "invoices of Khan Traders" instead of look-alike words

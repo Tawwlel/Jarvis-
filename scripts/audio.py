@@ -15,6 +15,33 @@ SR = 16000
 FRAME = int(SR * 0.03)  # 30 ms frames
 
 
+def clean_audio(audio: np.ndarray) -> np.ndarray:
+    """int16 in, int16 out: remove DC offset and lift quiet microphones to a steady level (helps every listener)."""
+    if audio is None or audio.size == 0:
+        return audio
+    x = audio.astype(np.float32) / 32768.0
+    x = x - float(np.mean(x))
+    peak = float(np.max(np.abs(x)))
+    if 0.003 < peak < 0.5:
+        x = x * min(0.7 / peak, 12.0)
+    return (np.clip(x, -1.0, 1.0) * 32767).astype(np.int16)
+
+
+def save_debug_clip(audio: np.ndarray, path):
+    """Keep the last thing heard (one file, overwritten) and log its loudness so bad listening can be diagnosed."""
+    try:
+        x = audio.astype(np.float32) / 32768.0
+        print(f"[audio] heard {len(audio) / SR:.1f}s peak={float(np.max(np.abs(x))):.3f} "
+              f"rms={float(np.sqrt(np.mean(x ** 2))):.4f}")
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(SR)
+            wf.writeframes(audio.tobytes())
+    except Exception:
+        pass
+
+
 def rms_level(frame: np.ndarray) -> float:
     return float(np.sqrt(np.mean((frame.astype(np.float32) / 32768.0) ** 2)))
 
@@ -23,7 +50,7 @@ class Segmenter:
     """Feed 30 ms frames; returns a finished speech segment (int16 array) once the
     speaker has paused, else None. Pure logic, so it is easy to test."""
 
-    def __init__(self, end_silence=0.8, max_seconds=30.0, start_frames=4, floor=0.012):
+    def __init__(self, end_silence=0.8, max_seconds=30.0, start_frames=3, floor=0.007):
         self.end_frames = int(end_silence / 0.03)
         self.max_frames = int(max_seconds / 0.03)
         self.start_frames, self.floor = start_frames, floor
@@ -35,7 +62,7 @@ class Segmenter:
     def _reset(self):
         self.active = False
         self.buf, self.speech_run, self.silence_run = [], 0, 0
-        self.pre = deque(maxlen=10)  # ~300 ms of lead-in so first syllables are kept
+        self.pre = deque(maxlen=24)  # ~700 ms of lead-in so first syllables are kept
 
     def feed(self, frame: np.ndarray):
         self.level = rms = rms_level(frame)
