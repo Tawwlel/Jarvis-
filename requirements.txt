@@ -28,3 +28,5 @@ invoice2data
 aiohttp
 qrcode[pil]
 xlrd
+pytesseract
+rarfile
