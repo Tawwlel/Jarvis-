@@ -1240,9 +1240,11 @@ class ChatWindow(QWidget):
             self._asked_at = None  # later notices (scan progress) are not answers
         who, color = ("YOU", P["dim"]) if role == "user" else ("JARVIS", P["accent"])
         safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        rtl = bool(re.search(r"[\u0600-\u06FF]", text))  # Urdu/Arabic: the text block reads right to left
+        body = (f'<div dir="rtl" style="font-size:15px">{safe}</div>' if rtl else f'<span style="font-size:15px">{safe}</span>')
         self.log.append(f'<div style="margin:10px 0">'
                         f'<span style="color:{color};font-family:{MONO};font-size:10px">{stamp}&nbsp;&nbsp;{who}</span>'
-                        f'<br><span style="font-size:15px">{safe}</span></div>')
+                        f'<br>{body}</div>')
         self.log.verticalScrollBar().setValue(self.log.verticalScrollBar().maximum())
 
     def _send(self):
