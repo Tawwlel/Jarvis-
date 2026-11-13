@@ -257,7 +257,7 @@ PROVIDERS = {
 LANGS = [("Auto - Urdu or English, whichever I speak", "auto"), ("English only", "en"), ("Urdu only", "ur")]
 URDU_VOICES = [("Asad (male)", "ur-PK-AsadNeural"), ("Uzma (female)", "ur-PK-UzmaNeural"),
                ("Salman (male, India)", "ur-IN-SalmanNeural"), ("Gul (female, India)", "ur-IN-GulNeural")]
-WHISPER_SIZES = ["base.en", "small", "medium", "large-v3"]
+WHISPER_SIZES = ["base.en", "small.en", "small", "medium", "large-v3"]
 
 
 def _scrolled(page):
@@ -627,7 +627,7 @@ class SettingsWindow(QWidget):
         f.addRow("Voice", vrow)
         f.addRow("Language", self.lang)
         f.addRow("Urdu voice", self.urdu_voice)
-        f.addRow(_note("Urdu needs the Whisper model 'small' or bigger for listening (set automatically) and "
+        f.addRow(_note("Urdu listening is much better with the Whisper model 'medium' or 'large-v3' (or OpenAI Whisper online); 'medium' is used automatically and "
                        "internet for the Urdu voice."))
         f.addRow(_section("Routine"))
         f.addRow("", brow)
